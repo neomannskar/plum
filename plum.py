@@ -1,10 +1,11 @@
+import sys
 import subprocess
 
 SIM = False
 
 lines = []
 
-with open("test.eri") as f:
+with open(sys.argv[1]) as f:
     raw = f.readlines()
     for line in raw:
         lines.append(line.strip())
@@ -132,7 +133,7 @@ if SIM:
 else:
     asm = ""
 
-    asm += "    .file \"a.s\"\n"
+    asm += f"    .file \"{sys.argv[1]}.s\"\n"
 
     """
         .text
@@ -201,8 +202,8 @@ printf:
 
     asm += program
 
-    with open("a.s", "w") as f:
+    with open(f"{sys.argv[1]}.s", "w") as f:
         print(asm)
         f.write(asm)
 
-    subprocess.run(["gcc", "a.s", "-o", "output.exe"])
+    subprocess.run(["gcc", f"{sys.argv[1]}.s", "-o", f"{sys.argv[1]}.exe"])

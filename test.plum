@@ -1,0 +1,9 @@
+10 20 + .
+
+0
+while
+    dup 10 < 
+do
+    1 +
+    dup .
+end
