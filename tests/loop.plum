@@ -5,3 +5,12 @@ do
     1 +
     dup .
 end
+
+0
+while
+    dup 10 < 
+do
+    "Hello World!" .
+    1 +
+end
+

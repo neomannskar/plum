@@ -1,0 +1,7 @@
+0
+while
+    dup 1 !=
+do
+    ? print
+end
+drop

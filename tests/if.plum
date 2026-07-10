@@ -1,0 +1,10 @@
+0
+if
+    dup 1 <
+do
+    "True" print
+else
+    "False" print
+end
+
+drop

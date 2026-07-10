@@ -9,8 +9,6 @@ lines = []
 
 STRING_REGEX = r'"[^"\n]*"'
 
-# python plum.py <.plum file> <.s file> <program>
-
 if len(sys.argv) < 4:
     print("Usage: python plum.py <.plum file> <.s file> <program>")
     sys.exit(1)
@@ -57,7 +55,7 @@ def gen_asm_x86_64(tokens) -> str:
     while tok_i < len(tokens):
         tok = tokens[tok_i]
 
-        if tok == ".":
+        if tok ==  "print":
             program += "    popq    %rdx\n"
             program += "    movq    %rsp, %rax\n"
             program += "    andq    $-16, %rsp\n"
@@ -154,35 +152,58 @@ def gen_asm_ARM(tokens) -> str:
     program = ""
     tok_i = 0
     while_counter = 0
+    if_counter = 0
     control_stack = []
     type_stack = []
+    stack_depth = 0
+    initial_depth = stack_depth
 
     while tok_i < len(tokens):
         tok = tokens[tok_i]
 
-        if tok == ".":
+        program += f"    ;    {tok}\n"
+
+        if tok ==  "print": # Print
             t = type_stack.pop()
 
             if t == "INT":
                 # Load format string address into x0 (first argument)
                 program += "    adrp    x0, l_.PRINT_NUMBER@PAGE\n"
                 program += "    add     x0, x0, l_.PRINT_NUMBER@PAGEOFF\n"
-                # Call printf (bl instead of call)
                 program += "    bl      _printf\n"
                 # Due to Mac ABI
                 program += "    add     sp, sp, #16\n"
 
             elif t == "STR":
-                program += "    ldr    x0, [sp], #16\n"
+                program += "    ldr     x0, [sp], #16\n"
                 program += "    bl      _puts\n"
 
             else:
                 print("Internal Error: Unknown strlit in type_stack")
                 sys.exit(0)
 
+            stack_depth -= 1
+            tok_i += 1
+        
+        elif tok == "?":
+            program += "    adrp    x1, _io@PAGE\n"
+            program += "    add     x1, x1, _io@PAGEOFF\n"
+
+            # Push resulting buffer
+            program += "    ;    push buffer address\n"
+            program += "    str     x1, [sp, #-16]!\n"
+            
+            program += "    adrp    x0, l_.SCANF_255s_FMT@PAGE\n"
+            program += "    add     x0, x0, l_.SCANF_255s_FMT@PAGEOFF\n"
+            program += "    bl      _scanf\n"
+
+            type_stack.append("STR")
+
+            stack_depth += 1
+
             tok_i += 1
 
-        elif tok == "dup":
+        elif tok == "dup": # Duplication
             if len(type_stack) > 0:
                 t = type_stack[-1]
                 type_stack.append(t)
@@ -192,9 +213,41 @@ def gen_asm_ARM(tokens) -> str:
 
             program += "    ldr     x0, [sp]\n"
             program += "    str     x0, [sp, #-16]!\n"
+            
+            stack_depth += 1
             tok_i += 1
 
-        elif tok == "+":
+        elif tok == "drop": # Duplication
+            if len(type_stack) > 0:
+                t = type_stack[-1]
+                type_stack.append(t)
+            else:
+                print("Compilation Error: 'drop' expects at least one value on the stack")
+                sys.exit(1)
+
+            program += "    add     sp, sp, #16\n"
+            
+            stack_depth += 1
+            tok_i += 1
+
+        elif tok == "swap": # Swap top values of stack
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                t2 = type_stack.pop()
+                type_stack.append(t2)
+                type_stack.append(t1)
+            else:
+                print("Compilation Error: 'swap' expects at least two values on the stack")
+                sys.exit(1)    
+
+            program += "    ldr    x0, [sp], #16\n"
+            program += "    ldr    x1, [sp], #16\n"
+            program += "    str    x1, [sp, #-16]!\n"
+            program += "    str    x0, [sp, #-16]!\n"
+
+            tok_i += 1
+
+        elif tok == "+": # Addition
             if len(type_stack) > 1:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
@@ -202,16 +255,19 @@ def gen_asm_ARM(tokens) -> str:
                     print("Compilation Error: '+' expects two integers")
                     print("\t- Pointer arithmetic not implemented yet\n")
                     sys.exit(1)
+            
+            type_stack.append("INT")
 
             program += "    ldr     x0, [sp], #16\n"  # pop x0
             program += "    ldr     x1, [sp], #16\n"  # pop x1
             program += "    add     x0, x1, x0\n"
             program += "    str     x0, [sp, #-16]!\n" # push result
+
+           
+            stack_depth -= 1
             tok_i += 1
 
-            type_stack.append("INT")
-
-        elif tok == "-":
+        elif tok == "-": # Subtraction
             if len(type_stack) > 1:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
@@ -219,16 +275,19 @@ def gen_asm_ARM(tokens) -> str:
                     print("Compilation Error: '-' expects two integers")
                     print("\t- Pointer arithmetic not implemented yet\n")
                     sys.exit(1)
+            
+            type_stack.append("INT")
 
             program += "    ldr     x1, [sp], #16\n"  # pop rbx equivalent (divisor/subtrahend)
             program += "    ldr     x0, [sp], #16\n"  # pop rax equivalent (minuend)
             program += "    sub     x0, x0, x1\n"
             program += "    str     x0, [sp, #-16]!\n"
+            
+           
+            stack_depth -= 1
             tok_i += 1
 
-            type_stack.append("INT")
-
-        elif tok == '*':
+        elif tok == '*': # Multiplication
             if len(type_stack) > 1:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
@@ -241,11 +300,14 @@ def gen_asm_ARM(tokens) -> str:
             program += "    ldr     x0, [sp], #16\n"
             program += "    mul     x0, x0, x1\n"
             program += "    str     x0, [sp, #-16]!\n"
+            
+            type_stack.append("INT")
+            
+           
+            stack_depth -= 1
             tok_i += 1
 
-            type_stack.append("INT")
-
-        elif tok == '/':
+        elif tok == '/': # Division
             if len(type_stack) > 1:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
@@ -258,17 +320,34 @@ def gen_asm_ARM(tokens) -> str:
             program += "    ldr     x0, [sp], #16\n"  # dividend
             program += "    sdiv    x0, x0, x1\n"     # x0 = x0 / x1
             program += "    str     x0, [sp, #-16]!\n"
-            tok_i += 1
 
             type_stack.append("INT")
-
-        elif tok == "while":
-            program += f".WHILE_START_{while_counter}:\n"
-            control_stack.append(while_counter)
-            while_counter += 1
+            
+           
+            stack_depth -= 1
             tok_i += 1
 
-        elif tok == "<":
+        elif tok == '%': # Modulo
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                t2 = type_stack.pop()
+                if t1 != "INT" or t2 != "INT":
+                    print("Compilation Error: '%' expects two integers")
+                    print("\t- Pointer arithmetic not implemented yet\n")
+                    sys.exit(1)
+            
+            program += "    ldr     x1, [sp], #16\n"  # divisor
+            program += "    ldr     x0, [sp], #16\n"  # dividend
+            program += "    sdiv    x2, x0, x1\n"     # x2 = x0 / x1
+            program += "    msub    x0, x2, x1, x0\n" # x0 = x0 - (x2 * x1)
+            program += "    str     x0, [sp, #-16]!\n"
+
+            type_stack.append("INT")
+            
+            stack_depth -= 1
+            tok_i += 1
+
+        elif tok == "<": # Less than
             if len(type_stack) > 1:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
@@ -282,28 +361,156 @@ def gen_asm_ARM(tokens) -> str:
             # cset sets register to 1 if condition (lt = less than) is true, else 0
             program += "    cset    x0, lt\n"
             program += "    str     x0, [sp, #-16]!\n"
+            
+            type_stack.append("INT")    
+
+           
+            stack_depth -= 1
             tok_i += 1
+
+        elif tok == ">": # Greater than
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                t2 = type_stack.pop()
+                if t1 != "INT" or t2 != "INT":
+                    print("Compilation Error: '>' expects two integers")
+                    sys.exit(1)
+            
+            program += "    ldr     x1, [sp], #16\n"  # b
+            program += "    ldr     x0, [sp], #16\n"  # a
+            program += "    cmp     x0, x1\n"
+            # cset sets register to 1 if condition (lt = less than) is true, else 0
+            program += "    cset    x0, gt\n"
+            program += "    str     x0, [sp, #-16]!\n"
             
             type_stack.append("INT")
 
-        elif tok == "do":
-            if len(type_stack) > 0:
+           
+            stack_depth -= 1
+            tok_i += 1
+
+        elif tok == "==": # Equal to
+            if len(type_stack) > 1:
                 t1 = type_stack.pop()
-                if t1 != "INT":
-                    print("Compilation Error: 'do' expects one integer")
+                t2 = type_stack.pop()
+                if t1 != "INT" or t2 != "INT":
+                    print("Compilation Error: '=' expects two integers")
                     sys.exit(1)
-                
-            current_while = control_stack[-1]
-            program +=  "    ldr     x0, [sp], #16\n"
-            program +=  "    cmp     x0, #0\n"
-            program += f"    b.eq    .WHILE_END_{current_while}\n"
+            
+            program += "    ldr     x1, [sp], #16\n"  # b
+            program += "    ldr     x0, [sp], #16\n"  # a
+            program += "    cmp     x0, x1\n"
+            # cset sets register to 1 if condition (eq = equal) is true, else 0
+            program += "    cset    x0, eq\n"
+            program += "    str     x0, [sp, #-16]!\n"
+            
+            type_stack.append("INT")
+
+            stack_depth -= 1
+            tok_i += 1
+
+        elif tok == "!=": # Not equal
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                t2 = type_stack.pop()
+                if t1 != "INT" or t2 != "INT":
+                    print("Compilation Error: '!=' expects two integers")
+                    sys.exit(1)
+            
+            program += "    ldr     x1, [sp], #16\n"  # b
+            program += "    ldr     x0, [sp], #16\n"  # a
+            program += "    cmp     x0, x1\n"
+            # cset sets register to 1 if condition (eq = equal) is true, else 0
+            program += "    cset    x0, ne\n"
+            program += "    str     x0, [sp, #-16]!\n"
+            
+            type_stack.append("INT")
+            
+            stack_depth -= 1
+            tok_i += 1
+
+        elif tok == "if": # If
+            program += f".IF_BRANCH_{if_counter}:\n"
+            control_stack.append(f"I{if_counter}")
+            if_counter += 1
+            initial_depth = stack_depth
+            
+            tok_i += 1
+        
+        elif tok == "while": # While
+            program += f".WHILE_START_{while_counter}:\n"
+            control_stack.append(f"W{while_counter}")
+            while_counter += 1
+            initial_depth = stack_depth
+            tok_i += 1
+
+        elif tok == "do": # Do
+            match control_stack[-1][0]:
+                case 'I':
+                    _if = control_stack[-1][-1]
+                    program +=  "    ldr     x0, [sp], #16\n"           # If 0 (false), jump to end
+                    program +=  "    cmp     x0, #0            ; check if false\n"
+                    # program += f"    b.eq    .END_BRANCH_{_if}\n"
+                    program += f"    b.eq    .ELSE_BRANCH_{_if}\n"
+                    program +=  "    ; then branch\n"
+
+                case 'W':
+                    _while = control_stack[-1][-1]
+                    program +=  "    ldr     x0, [sp], #16\n"           # If 0 (false), jump (exit) while loop
+                    program +=  "    cmp     x0, #0\n"
+                    program += f"    b.eq    .WHILE_END_{_while}\n"
+
+                case _:
+                    print(f"Internal error: Control-stack contains yunk: {control_stack[-1]}")
+                    sys.exit(1)
+            
+            stack_depth -= 1
+            tok_i += 1
+        
+        elif tok == "else":
+            if stack_depth > initial_depth:
+                print(f"Stack depth: {stack_depth} > (init){initial_depth}")
+                program += f"    add     sp, sp, #{(stack_depth - initial_depth) * 16}\n"
+                stack_depth = initial_depth
+
+            if control_stack[-1][0] != 'I':
+                print(f"Compilation Error: Unexpected 'else', missing associated 'if'\n\tFound: {control_stack[-1]}")
+                sys.exit(1)
+
+            _if = control_stack[-1][-1]
+            program += f"    b    .END_BRANCH_{_if}\n"
+            program += f".ELSE_BRANCH_{_if}:\n" # This is not needed I think, there will not be any branching here but i can be good to keep for now
+            program +=  "    ; else branch\n"
+
+            stack_depth = initial_depth
             tok_i += 1
 
         elif tok == "end":
-            current_while = control_stack.pop()
-            program += f"    b       .WHILE_START_{current_while}\n"
-            program += f".WHILE_END_{current_while}:\n"
-            program +=  "    mov    sp, x29\n"
+            if stack_depth > initial_depth:
+                print(f"Stack depth: {stack_depth} > (init){initial_depth}")
+                program += f"    add     sp, sp, #{(stack_depth - initial_depth) * 16}\n"
+                stack_depth = initial_depth
+
+            match control_stack[-1][0]:
+                case 'I':
+                    _if = control_stack.pop()[-1]
+                    program += f".END_BRANCH_{_if}:\n"
+                    # program +=  "    mov    sp, x29\n"    Why is this here? - Question for Gemini
+
+                case 'W':
+                    _while = control_stack.pop()[-1]
+                    program += f"    b       .WHILE_START_{_while}\n"
+                    program += f".WHILE_END_{_while}:\n"
+                    # program +=  "    mov    sp, x29\n"    Why is this here? - Question for Gemini
+
+                case _:
+                    print(f"Internal error: Control-stack contains yunk: {control_stack[-1]}")
+                    sys.exit(1)
+
+            if stack_depth != initial_depth:
+                print(f"Stack inbalance! {stack_depth} > (init){initial_depth}")
+                sys.exit(1)
+                
             tok_i += 1
         
         elif tok[0] == '"': # String literal
@@ -312,44 +519,54 @@ def gen_asm_ARM(tokens) -> str:
 
             id = get_str_id(tok)
             if id < 0:
-                print("ERROR: String literal has no matching id")
+                print(f"ERROR: String literal has no matching id: {tok}")
                 sys.exit(1)
             
-            program += f"    adrp    x0, l_.str.{id}@PAGE\n"
-            program += f"    add x0, x0, l_.str.{id}@PAGEOFF\n"
+            program += f"    adrp    x0, l_.STR.{id}@PAGE\n"
+            program += f"    add     x0, x0, l_.STR.{id}@PAGEOFF\n"
             program +=  "    str     x0, [sp, #-16]!\n"
-            tok_i += 1
 
             type_stack.append("STR")
+            
+            stack_depth += 1
+            tok_i += 1
 
         else:
             program += f"    mov     x0, #{tok}\n"
             program +=  "    str     x0, [sp, #-16]!\n"
-            tok_i += 1
 
             type_stack.append("INT")
+            
+            stack_depth += 1
+            tok_i += 1
 
     return program
 
 def gen_str_section_ARM(strings) -> str:
     section =  "l_.PRINT_NUMBER:\n"
-    section += "    .asciz  \"%d\\12\\0\"\n\n"
+    section += "    .asciz  \"%d\\12\\0\"\n"
+    section += "l_.SCANF_255s_FMT:\n"
+    section += "    .asciz  \"%255s\\0\"\n\n"
 
     str_lit_num = 0
     for string in strings:
-        section += f"l_.str.{str_lit_num}:\n"
+        section += f"l_.STR.{str_lit_num}:\n"
         section += f"    .asciz  {string}\n"
         str_lit_num += 1
     
     return section
 
-stack = []
+def gen_BSS_ARM() -> str:
+    bss = ".zerofill __DATA,__bss,_io,256,0\n"
+    return bss
 
 if SIM:
+    stack = []
+
     print("SIM not implemented yet!")
     """
     for tokens[tok_i] in tokens:
-        if tokens[tok_i] == ".":
+        if tokens[tok_i] ==  "print":
             print(stack.pop())
         elif tokens[tok_i] == "+":
             lhs = stack.pop()
@@ -435,18 +652,19 @@ else:
         asm += program
 
         with open(f"{a_file}.s", "w") as f:
-            print(asm)
+            # print(asm)
             f.write(asm)
 
         subprocess.run(["gcc", f"{a_file}.s", "-o", f"{o_file}.exe"])
 
     else:
+        program += "    .section	__TEXT,__text,regular,pure_instructions\n"
         program += "    .globl _main\n"
         program += "    .p2align    2\n"
         program += "_main:\n"
         program += "    stp     x29, x30, [sp, #-16]!\n"
         program += "    mov     x29, sp\n"
-        
+
         program += gen_asm_ARM(tokens)
         
         program += "    mov	    w0, #0\n"
@@ -458,9 +676,10 @@ else:
         asm += "    .section    __TEXT,__cstring,cstring_literals\n"
 
         asm += gen_str_section_ARM(str_literals)
+        asm += gen_BSS_ARM()
         
         with open(f"{a_file}.s", "w") as f:
-            print(asm)
+            # print(asm)
             f.write(asm)
 
         subprocess.run(["gcc", f"{a_file}.s", "-o", f"{o_file}"])
