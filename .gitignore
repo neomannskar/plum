@@ -219,6 +219,8 @@ __marimo__/
 
 *.exe
 *.s
+*.c
 
 build/
 assembly/*
+c/
