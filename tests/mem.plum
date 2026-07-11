@@ -1,2 +1,21 @@
-10 20 30 40 50 60 70 80 90 100
-addr[0] dup .
+32 alloc if
+    dup 0 ==
+    do
+        "Failed to allocate memory" print
+        1 exit
+    else
+end
+
+0 while
+    dup 32 <
+    do
+        over over dup []=
+        1 +
+end drop
+
+0 while
+    dup 32 <
+    do
+        over over [] print
+        1 +
+end drop

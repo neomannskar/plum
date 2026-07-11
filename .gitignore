@@ -220,6 +220,7 @@ __marimo__/
 *.exe
 *.s
 *.c
+*.out
 
 build/
 assembly/*

@@ -7,15 +7,48 @@ SIM = False
 
 lines = []
 
+import argparse
+import os
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        prog="plum",
+        description="Compile a .plum source file to a native executable.",
+    )
+    parser.add_argument("source", help="Path to the .plum source file")
+    parser.add_argument(
+        "--emit",
+        dest="asm_file",
+        metavar="FILE",
+        help="Base path for the generated assembly (.s appended). "
+             "Defaults to the source file's name.",
+    )
+    parser.add_argument(
+        "-o",
+        dest="out_file",
+        metavar="FILE",
+        help="Path for the compiled executable. Defaults to the source file's name.",
+    )
+    args = parser.parse_args()
+
+    if not os.path.isfile(args.source):
+        parser.error(f"no such file: {args.source}")
+
+    stem = os.path.splitext(os.path.basename(args.source))[0]
+
+    asm_file = args.asm_file or stem
+    if asm_file.endswith(".s"):        # tolerate "--emit foo.s" as well as "--emit foo"
+        asm_file = asm_file[:-2]
+
+    out_file = args.out_file or stem
+
+    return args.source, asm_file, out_file
+
+
+s_file, a_file, o_file = parse_args()
+
 STRING_REGEX = r'"[^"\n]*"'
-
-if len(sys.argv) < 4:
-    print("Usage: python plum.py <.plum file> <.s file> <program>")
-    sys.exit(1)
-
-s_file = sys.argv[1]
-a_file = sys.argv[2]
-o_file = sys.argv[3]
+COMMENT_REGEX = re.compile(r'#[^\n]*')
 
 with open(s_file) as f:
     source_code = f.read()
@@ -31,7 +64,15 @@ for chunk in chunks:
         tokens.append(chunk)
         str_literals.append(chunk)
     else:
+        chunk = COMMENT_REGEX.sub('', chunk)
         tokens.extend(chunk.split())
+
+def is_integer(token):
+    try:
+        int(token)
+        return True
+    except ValueError:
+        return False
 
 def get_str_id(lit) -> int:
     i = 0
@@ -45,6 +86,7 @@ def get_str_id(lit) -> int:
     return -1
 
 tok_i = 0
+allocations = []
 
 def gen_asm_x86_64(tokens) -> str:
     program = ""
@@ -153,7 +195,7 @@ def gen_asm_ARM(tokens) -> str:
     tok_i = 0
     while_counter = 0
     if_counter = 0
-    control_stack = []
+    control_stack = ["root"]
     type_stack = []
     stack_depth = 0
     initial_depth = stack_depth
@@ -171,12 +213,17 @@ def gen_asm_ARM(tokens) -> str:
                 program += "    adrp    x0, l_.PRINT_NUMBER@PAGE\n"
                 program += "    add     x0, x0, l_.PRINT_NUMBER@PAGEOFF\n"
                 program += "    bl      _printf\n"
-                # Due to Mac ABI
+
                 program += "    add     sp, sp, #16\n"
 
             elif t == "STR":
                 program += "    ldr     x0, [sp], #16\n"
                 program += "    bl      _puts\n"
+
+                # program += "    ldr     x1, [sp], #16\n" # Popa strängpekaren till x1
+                # program += "    adrp    x0, l_.PRINT_STRING@PAGE\n"
+                # program += "    add     x0, x0, l_.PRINT_STRING@PAGEOFF\n"
+                # program += "    bl      _printf\n"
 
             else:
                 print("Internal Error: Unknown strlit in type_stack")
@@ -197,7 +244,7 @@ def gen_asm_ARM(tokens) -> str:
             program += "    add     x0, x0, l_.SCANF_255s_FMT@PAGEOFF\n"
             program += "    bl      _scanf\n"
 
-            type_stack.append("STR")
+            type_stack.append("PTR")
 
             stack_depth += 1
 
@@ -208,7 +255,7 @@ def gen_asm_ARM(tokens) -> str:
                 t = type_stack[-1]
                 type_stack.append(t)
             else:
-                print("Compilation Error: 'dup' expects at least one value on the stack")
+                print(f"Compilation Error: 'dup' expects at least one value on the stack")
                 sys.exit(1)
 
             program += "    ldr     x0, [sp]\n"
@@ -217,17 +264,16 @@ def gen_asm_ARM(tokens) -> str:
             stack_depth += 1
             tok_i += 1
 
-        elif tok == "drop": # Duplication
+        elif tok == "drop": # Drop (pop)
             if len(type_stack) > 0:
-                t = type_stack[-1]
-                type_stack.append(t)
+                type_stack.pop()
             else:
-                print("Compilation Error: 'drop' expects at least one value on the stack")
+                print(f"Compilation Error: 'drop' expects at least one value on the stack")
                 sys.exit(1)
 
             program += "    add     sp, sp, #16\n"
             
-            stack_depth += 1
+            stack_depth -= 1
             tok_i += 1
 
         elif tok == "swap": # Swap top values of stack
@@ -237,13 +283,141 @@ def gen_asm_ARM(tokens) -> str:
                 type_stack.append(t2)
                 type_stack.append(t1)
             else:
-                print("Compilation Error: 'swap' expects at least two values on the stack")
+                print(f"Compilation Error: 'swap' expects at least two values on the stack")
                 sys.exit(1)    
 
-            program += "    ldr    x0, [sp], #16\n"
-            program += "    ldr    x1, [sp], #16\n"
-            program += "    str    x1, [sp, #-16]!\n"
-            program += "    str    x0, [sp, #-16]!\n"
+            program += "    ldr    x0, [sp]\n"
+            program += "    ldr    x1, [sp, #16]\n"
+            program += "    str    x1, [sp]\n"
+            program += "    str    x0, [sp, #16]\n"
+
+            tok_i += 1
+
+        elif tok == "rot": 
+            if len(type_stack) > 2: 
+                # 1. Update the compiler's internal type tracking
+                t1 = type_stack.pop() 
+                t2 = type_stack.pop() 
+                t3 = type_stack.pop() 
+                type_stack.append(t2) 
+                type_stack.append(t1) 
+                type_stack.append(t3) 
+            else: 
+                print(f"Compilation Error: 'rot' expects at least three values on the stack") 
+                sys.exit(1)
+
+            program += "    ldr x0, [sp]        // x0 = t1 (top)\n"
+            program += "    ldr x1, [sp, #16]    // x1 = t2\n"
+            program += "    ldr x2, [sp, #32]   // x2 = t3\n"
+            
+            # Store them back in the rotated order
+            program += "    str x2, [sp]        // new top = t3\n"
+            program += "    str x0, [sp, #16]    // new middle = t1\n"
+            program += "    str x1, [sp, #32]   // new bottom = t2\n"
+
+            tok_i += 1
+        
+        elif tok == "over":
+            type_stack.append(type_stack[-2])
+
+            program += "    ldr     x0, [sp, #16]\n"    # peek second
+            program += "    str     x0, [sp, #-16]!\n" # push copy
+
+            stack_depth += 1
+            tok_i += 1
+
+        elif tok == "alloc":
+            b = type_stack.pop()
+            if b != "INT":
+                print(f"'alloc' expects an integer on the stack, found {b}")
+                sys.exit(1)
+            
+            allocations.append([stack_depth, control_stack[-1]])
+
+            program += "    ldr     x0, [sp], #16\n"
+            # Logical Shift Left (x * 8)
+            program += "    lsl     x0, x0, #3\n"
+            program += "    bl      _malloc\n"
+            program += "    str     x0, [sp, #-16]!\n"
+
+            # print("Allocations: ", allocations)
+
+            type_stack.append("PTR")
+            tok_i += 1
+
+        elif tok == "exit":
+            type_stack.pop()
+
+            program += "    ldr     x0, [sp], #16\n"
+            program += "    bl      _exit\n"
+
+            tok_i += 1
+
+        elif tok == "[]": # Array index (pushes indexed value to stack)
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                t2 = type_stack.pop()
+                if t1 == "STR" or t2 == "STR":
+                    print(f"Compilation Error: '[]' expects an address(PTR) and an index(INT), got: {t1} and {t2}")
+                    sys.exit(1)
+
+                type_stack.append("INT")
+
+            program += "    ldr     x0, [sp], #16\n" # pop
+            program += "    ldr     x1, [sp], #16\n" # pop
+            program += "    ldr     x0, [x1, x0, lsl #3]\n" # *(base + index * 8)
+            program += "    str     x0, [sp, #-16]!\n" # push
+
+            stack_depth -= 1
+            tok_i += 1
+
+        elif tok == "[]=": # Array assign (assigns value in array at index)
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                t2 = type_stack.pop()
+                t3 = type_stack.pop()
+                if t1 == "STR" or t2 == "STR" or t3 == "STR":
+                    print(f"Compilation Error: '[]=' expects an address(PTR), index(INT) and value(INT), got: {t1}, {t2} and {t3}")
+                    sys.exit(1)
+
+            program += "    ldr     x0, [sp], #16\n"        # pop address
+            program += "    ldr     x1, [sp], #16\n"        # pop index
+            program += "    ldr     x2, [sp], #16\n"        # pop base pointer
+            
+            program += "    str     x0, [x2, x1, lsl #3]\n" # *(base + index * 8)
+
+            stack_depth -= 3
+            tok_i += 1
+
+        elif tok == "++": # Increment
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                if t1 == "STR":
+                    print(f"Compilation Error: '++' expects an integer or pointer, got: {t1}")
+                    print("\t- Pointer arithmetic not implemented yet\n")
+                    sys.exit(1)
+            
+            type_stack.append("INT")
+
+            program += "    ldr     x0, [sp], #16\n"
+            program += "    add     x0, x0, #1\n"
+            program += "    str     x0, [sp, #-16]!\n"
+
+            tok_i += 1
+
+        elif tok == "--": # Decrement
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                if t1 == "STR":
+                    print(f"Compilation Error: '--' expects an integer or pointer, got: {t1}")
+                    print("\t- Pointer arithmetic not implemented yet\n")
+                    sys.exit(1)
+            
+            type_stack.append("INT")
+
+            program += "    ldr     x0, [sp], #16\n"
+            program += "    sub     x0, x0, #1\n"
+            program += "    str     x0, [sp, #-16]!\n"
 
             tok_i += 1
 
@@ -252,7 +426,7 @@ def gen_asm_ARM(tokens) -> str:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
                 if t1 != "INT" or t2 != "INT":
-                    print("Compilation Error: '+' expects two integers")
+                    print(f"Compilation Error: '+' expects two integers, got: {t1} and {t2}")
                     print("\t- Pointer arithmetic not implemented yet\n")
                     sys.exit(1)
             
@@ -263,7 +437,6 @@ def gen_asm_ARM(tokens) -> str:
             program += "    add     x0, x1, x0\n"
             program += "    str     x0, [sp, #-16]!\n" # push result
 
-           
             stack_depth -= 1
             tok_i += 1
 
@@ -272,7 +445,7 @@ def gen_asm_ARM(tokens) -> str:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
                 if t1 != "INT" or t2 != "INT":
-                    print("Compilation Error: '-' expects two integers")
+                    print(f"Compilation Error: '-' expects two integers, got: {t1} and {t2}")
                     print("\t- Pointer arithmetic not implemented yet\n")
                     sys.exit(1)
             
@@ -282,7 +455,6 @@ def gen_asm_ARM(tokens) -> str:
             program += "    ldr     x0, [sp], #16\n"  # pop rax equivalent (minuend)
             program += "    sub     x0, x0, x1\n"
             program += "    str     x0, [sp, #-16]!\n"
-            
            
             stack_depth -= 1
             tok_i += 1
@@ -292,7 +464,7 @@ def gen_asm_ARM(tokens) -> str:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
                 if t1 != "INT" or t2 != "INT":
-                    print("Compilation Error: '*' expects two integers")
+                    print(f"Compilation Error: '*' expects two integers, got: {t1} and {t2}")
                     print("\t- Pointer arithmetic not implemented yet\n")
                     sys.exit(1)
 
@@ -302,7 +474,6 @@ def gen_asm_ARM(tokens) -> str:
             program += "    str     x0, [sp, #-16]!\n"
             
             type_stack.append("INT")
-            
            
             stack_depth -= 1
             tok_i += 1
@@ -312,7 +483,7 @@ def gen_asm_ARM(tokens) -> str:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
                 if t1 != "INT" or t2 != "INT":
-                    print("Compilation Error: '/' expects two integers")
+                    print(f"Compilation Error: '/' expects two integers, got: {t1} and {t2}")
                     print("\t- Pointer arithmetic not implemented yet\n")
                     sys.exit(1)
             
@@ -322,7 +493,6 @@ def gen_asm_ARM(tokens) -> str:
             program += "    str     x0, [sp, #-16]!\n"
 
             type_stack.append("INT")
-            
            
             stack_depth -= 1
             tok_i += 1
@@ -332,7 +502,7 @@ def gen_asm_ARM(tokens) -> str:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
                 if t1 != "INT" or t2 != "INT":
-                    print("Compilation Error: '%' expects two integers")
+                    print(f"Compilation Error: '%' expects two integers, got: {t1} and {t2}")
                     print("\t- Pointer arithmetic not implemented yet\n")
                     sys.exit(1)
             
@@ -347,12 +517,84 @@ def gen_asm_ARM(tokens) -> str:
             stack_depth -= 1
             tok_i += 1
 
-        elif tok == "<": # Less than
+        elif tok == '&': # Bitwise And
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                t2 = type_stack.pop()
+
+            type_stack.append("INT")
+
+            program += "    ldr     x0, [sp], #16\n"
+            program += "    ldr     x1, [sp], #16\n"
+            program += "    and     x0, x1, x0\n"
+            program += "    str     x0, [sp, #-16]!\n"
+
+            stack_depth -= 1
+            tok_i += 1
+
+        elif tok == '|': # Bitwise Or
             if len(type_stack) > 1:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
                 if t1 != "INT" or t2 != "INT":
-                    print("Compilation Error: '<' expects two integers")
+                    print(f"Compilation Error: '|' expects two integers, got: {t1} and {t2}")
+                    print("\t- Pointer arithmetic not implemented yet\n")
+                    sys.exit(1)
+            
+            type_stack.append("INT")
+
+            program += "    ldr     x0, [sp], #16\n"  # pop x0
+            program += "    ldr     x1, [sp], #16\n"  # pop x1
+            program += "    orr    x0, x1, x0\n"
+            program += "    str     x0, [sp, #-16]!\n" # push result
+
+            stack_depth -= 1
+            tok_i += 1
+
+        elif tok == '<<': # Bitshift left
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                t2 = type_stack.pop()
+                if t1 != "INT" or t2 != "INT":
+                    print(f"Compilation Error: '<<' expects two integers, got: {t1} and {t2}")
+                    print("\t- Pointer arithmetic not implemented yet\n")
+                    sys.exit(1)
+            
+            type_stack.append("INT")
+
+            program += "    ldr     x0, [sp], #16\n"
+            program += "    ldr     x1, [sp], #16\n"
+            program += "    lsl     x0, x1, x0\n"
+            program += "    str     x0, [sp, #-16]!\n"
+           
+            stack_depth -= 1
+            tok_i += 1
+
+        elif tok == '>>': # Bitshift right
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                t2 = type_stack.pop()
+                if t1 != "INT" or t2 != "INT":
+                    print(f"Compilation Error: '>>' expects two integers, got: {t1} and {t2}")
+                    print("\t- Pointer arithmetic not implemented yet\n")
+                    sys.exit(1)
+            
+            type_stack.append("INT")
+
+            program += "    ldr     x0, [sp], #16\n"
+            program += "    ldr     x1, [sp], #16\n"
+            program += "    asr     x0, x1, x0\n"
+            program += "    str     x0, [sp, #-16]!\n"
+
+            stack_depth -= 1
+            tok_i += 1
+
+        elif tok == "<": # Less than
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                t2 = type_stack.pop()
+                if t1 == "STR" or t2 == "STR":
+                    print(f"Compilation Error: '<' expects integers or pointers, got: {t1} and {t2}")
                     sys.exit(1)
             
             program += "    ldr     x1, [sp], #16\n"  # b
@@ -372,8 +614,8 @@ def gen_asm_ARM(tokens) -> str:
             if len(type_stack) > 1:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
-                if t1 != "INT" or t2 != "INT":
-                    print("Compilation Error: '>' expects two integers")
+                if t1 == "STR" or t2 == "STR":
+                    print(f"Compilation Error: '>' expects integers or pointers, got: {t1} and {t2}")
                     sys.exit(1)
             
             program += "    ldr     x1, [sp], #16\n"  # b
@@ -393,8 +635,8 @@ def gen_asm_ARM(tokens) -> str:
             if len(type_stack) > 1:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
-                if t1 != "INT" or t2 != "INT":
-                    print("Compilation Error: '=' expects two integers")
+                if t1 == "STR" or t2 == "STR":
+                    print(f"Compilation Error: '==' expects integers or pointers, got: {t1} and {t2}")
                     sys.exit(1)
             
             program += "    ldr     x1, [sp], #16\n"  # b
@@ -413,8 +655,8 @@ def gen_asm_ARM(tokens) -> str:
             if len(type_stack) > 1:
                 t1 = type_stack.pop()
                 t2 = type_stack.pop()
-                if t1 != "INT" or t2 != "INT":
-                    print("Compilation Error: '!=' expects two integers")
+                if t1 == "STR" or t2 == "STR":
+                    print(f"Compilation Error: '!=' expects integers or pointers, got: {t1} and {t2}")
                     sys.exit(1)
             
             program += "    ldr     x1, [sp], #16\n"  # b
@@ -464,12 +706,13 @@ def gen_asm_ARM(tokens) -> str:
                     print(f"Internal error: Control-stack contains yunk: {control_stack[-1]}")
                     sys.exit(1)
             
+            type_stack.pop()
             stack_depth -= 1
             tok_i += 1
         
         elif tok == "else":
             if stack_depth > initial_depth:
-                print(f"Stack depth: {stack_depth} > (init){initial_depth}")
+                program += "; auto drop\n"
                 program += f"    add     sp, sp, #{(stack_depth - initial_depth) * 16}\n"
                 stack_depth = initial_depth
 
@@ -486,8 +729,10 @@ def gen_asm_ARM(tokens) -> str:
             tok_i += 1
 
         elif tok == "end":
+            scope = control_stack[-1]
+
             if stack_depth > initial_depth:
-                print(f"Stack depth: {stack_depth} > (init){initial_depth}")
+                program += "; auto drop\n"
                 program += f"    add     sp, sp, #{(stack_depth - initial_depth) * 16}\n"
                 stack_depth = initial_depth
 
@@ -495,20 +740,21 @@ def gen_asm_ARM(tokens) -> str:
                 case 'I':
                     _if = control_stack.pop()[-1]
                     program += f".END_BRANCH_{_if}:\n"
-                    # program +=  "    mov    sp, x29\n"    Why is this here? - Question for Gemini
 
                 case 'W':
                     _while = control_stack.pop()[-1]
                     program += f"    b       .WHILE_START_{_while}\n"
                     program += f".WHILE_END_{_while}:\n"
-                    # program +=  "    mov    sp, x29\n"    Why is this here? - Question for Gemini
 
                 case _:
                     print(f"Internal error: Control-stack contains yunk: {control_stack[-1]}")
                     sys.exit(1)
 
-            if stack_depth != initial_depth:
+            if stack_depth > initial_depth:
                 print(f"Stack inbalance! {stack_depth} > (init){initial_depth}")
+                print("\tFrom here: ", scope)
+                for i in range(tok_i, len(tokens)):
+                    print("\t", tokens[i])
                 sys.exit(1)
                 
             tok_i += 1
@@ -532,6 +778,10 @@ def gen_asm_ARM(tokens) -> str:
             tok_i += 1
 
         else:
+            if not is_integer(tok):
+                print(f"Syntax error: expected integer, got: {tok}")
+                sys.exit(1)
+
             program += f"    mov     x0, #{tok}\n"
             program +=  "    str     x0, [sp, #-16]!\n"
 
@@ -544,9 +794,11 @@ def gen_asm_ARM(tokens) -> str:
 
 def gen_str_section_ARM(strings) -> str:
     section =  "l_.PRINT_NUMBER:\n"
-    section += "    .asciz  \"%d\\12\\0\"\n"
+    section += "    .asciz  \"%ld\\12\\0\"\n"
     section += "l_.SCANF_255s_FMT:\n"
-    section += "    .asciz  \"%255s\\0\"\n\n"
+    section += "    .asciz  \"%255s\\0\"\n"
+    section += "l_.PRINT_STRING:\n"
+    section += "    .asciz  \"%s\\0\"\n\n"
 
     str_lit_num = 0
     for string in strings:
@@ -554,6 +806,8 @@ def gen_str_section_ARM(strings) -> str:
         section += f"    .asciz  {string}\n"
         str_lit_num += 1
     
+    section += "\n"
+
     return section
 
 def gen_BSS_ARM() -> str:
@@ -652,7 +906,6 @@ else:
         asm += program
 
         with open(f"{a_file}.s", "w") as f:
-            # print(asm)
             f.write(asm)
 
         subprocess.run(["gcc", f"{a_file}.s", "-o", f"{o_file}.exe"])
@@ -667,6 +920,15 @@ else:
 
         program += gen_asm_ARM(tokens)
         
+        # print(allocations)
+
+        if len(allocations) > 0:
+            program += "    ; Automatic memory deallocation\n"
+            for alloc in allocations:
+                program += "    ldr     x0, [sp], #16\n"
+                program += "    bl      _free\n"
+
+        program += "    ; return\n"
         program += "    mov	    w0, #0\n"
         program += "    ldp     x29, x30, [sp], #16\n"
         program += "    ret\n\n"
@@ -677,9 +939,10 @@ else:
 
         asm += gen_str_section_ARM(str_literals)
         asm += gen_BSS_ARM()
+
+        # asm += "\n.subsections_via_symbols\n" <-- Doesn't work for some reason
         
         with open(f"{a_file}.s", "w") as f:
-            # print(asm)
             f.write(asm)
 
         subprocess.run(["gcc", f"{a_file}.s", "-o", f"{o_file}"])

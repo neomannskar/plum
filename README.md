@@ -1,3 +1,5 @@
+<img height="128" alt="PLUM LOGO" src="./media/plum.png">
+
 # Plum
 Plum is a simple compiled arithmetic stackbased programming language written in Python.
 

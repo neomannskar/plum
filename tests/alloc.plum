@@ -1,0 +1,9 @@
+32 alloc
+if
+    dup 0 ==
+do
+    "Failed to allocate memory" print
+else end
+
+"Allocation succeeded!" print
+"\t~ Memory automatically deallocated at end of program" print
