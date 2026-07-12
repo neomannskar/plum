@@ -49,6 +49,7 @@ s_file, a_file, o_file = parse_args()
 
 STRING_REGEX = r'"[^"\n]*"'
 COMMENT_REGEX = re.compile(r'#[^\n]*')
+WHITESPACE_SPLIT = re.compile(r'[ \t]+|(\n)')
 
 with open(s_file) as f:
     source_code = f.read()
@@ -65,7 +66,8 @@ for chunk in chunks:
         str_literals.append(chunk)
     else:
         chunk = COMMENT_REGEX.sub('', chunk)
-        tokens.extend(chunk.split())
+        sub_chunks = WHITESPACE_SPLIT.split(chunk)
+        tokens.extend([t for t in sub_chunks if t])
 
 def is_integer(token):
     try:
@@ -85,8 +87,9 @@ def get_str_id(lit) -> int:
     
     return -1
 
-tok_i = 0
 allocations = []
+string_pool = {}
+macros = {}
 
 def gen_asm_x86_64(tokens) -> str:
     program = ""
@@ -190,9 +193,8 @@ def gen_asm_x86_64(tokens) -> str:
 
     return program
 
-def gen_asm_ARM(tokens) -> str:
+def gen_asm_ARM(tokens, tok_i) -> str:
     program = ""
-    tok_i = 0
     while_counter = 0
     if_counter = 0
     control_stack = ["root"]
@@ -203,33 +205,64 @@ def gen_asm_ARM(tokens) -> str:
     while tok_i < len(tokens):
         tok = tokens[tok_i]
 
+        if tok == "\n":
+            tok_i += 1
+            continue
+
         program += f"    ;    {tok}\n"
+        
+        if tok == "macro":
+            tok_i += 1
+            tok = tokens[tok_i]
+            mac_id = tok
+            program += f"    ;    {mac_id}"
 
-        if tok ==  "print": # Print
-            t = type_stack.pop()
+            tok_i += 1
+            tok = tokens[tok_i]
 
-            if t == "INT":
-                # Load format string address into x0 (first argument)
-                program += "    adrp    x0, l_.PRINT_NUMBER@PAGE\n"
-                program += "    add     x0, x0, l_.PRINT_NUMBER@PAGEOFF\n"
-                program += "    bl      _printf\n"
+            mac = []
+            while tok != "\n":
+                program += f" {tok}"
+                mac.append(tok)
+                tok_i += 1
+                tok = tokens[tok_i]
+            program += "\n\n"
 
-                program += "    add     sp, sp, #16\n"
+            macros[mac_id] = mac
 
-            elif t == "STR":
-                program += "    ldr     x0, [sp], #16\n"
-                program += "    bl      _puts\n"
+            print(macros)
 
-                # program += "    ldr     x1, [sp], #16\n" # Popa strängpekaren till x1
-                # program += "    adrp    x0, l_.PRINT_STRING@PAGE\n"
-                # program += "    add     x0, x0, l_.PRINT_STRING@PAGEOFF\n"
-                # program += "    bl      _printf\n"
+        elif tok ==  "print": # Print
+            fmt_type = type_stack.pop()
+            val_type = type_stack.pop()
 
-            else:
-                print("Internal Error: Unknown strlit in type_stack")
-                sys.exit(0)
+            if fmt_type != "STR":
+                print(f"Error: 'print' expects a format string on TOS, got {fmt_type}")
+                sys.exit(1)
 
-            stack_depth -= 1
+            program += "    ldr     x0, [sp], #16\n"
+            # program += "    ldr     x1, [sp], #16\n"
+            program += "    bl      _printf\n"
+            program += "    add     sp, sp, #16\n"
+
+            stack_depth -= 2
+            tok_i += 1
+        
+        elif tok == "println":
+            fmt_type = type_stack.pop()
+            val_type = type_stack.pop()
+
+            if fmt_type != "STR":
+                print(f"Error: 'print' expects a format string on TOS, got {fmt_type}")
+                sys.exit(1)
+
+            program += "    ldr     x0, [sp], #16\n"
+            program += "    bl      _printf\n"
+            program += "    add     sp, sp, #16\n"
+            program += "    mov     x0, #10\n" # #10 = '\n'
+            program += "    bl      _putchar\n"           
+
+            stack_depth -= 2
             tok_i += 1
         
         elif tok == "?":
@@ -296,24 +329,23 @@ def gen_asm_ARM(tokens) -> str:
         elif tok == "rot": 
             if len(type_stack) > 2: 
                 # 1. Update the compiler's internal type tracking
-                t1 = type_stack.pop() 
-                t2 = type_stack.pop() 
-                t3 = type_stack.pop() 
+                t1 = type_stack.pop() # a
+                t2 = type_stack.pop() # b
+                t3 = type_stack.pop() # c
                 type_stack.append(t2) 
                 type_stack.append(t1) 
-                type_stack.append(t3) 
+                type_stack.append(t3)
             else: 
                 print(f"Compilation Error: 'rot' expects at least three values on the stack") 
                 sys.exit(1)
 
-            program += "    ldr x0, [sp]        // x0 = t1 (top)\n"
-            program += "    ldr x1, [sp, #16]    // x1 = t2\n"
-            program += "    ldr x2, [sp, #32]   // x2 = t3\n"
-            
-            # Store them back in the rotated order
-            program += "    str x2, [sp]        // new top = t3\n"
-            program += "    str x0, [sp, #16]    // new middle = t1\n"
-            program += "    str x1, [sp, #32]   // new bottom = t2\n"
+            program += "    ; [a, b, c] --> [b, c, a]\n"
+            program += "    ldr x0, [sp]\n"         # x0 = c (top)
+            program += "    ldr x1, [sp, #16]\n"    # x1 = b (middle)
+            program += "    ldr x2, [sp, #32]\n"    # x2 = a (bottom)
+            program += "    str x1, [sp, #32]\n"
+            program += "    str x0, [sp, #16]\n"
+            program += "    str x2, [sp]\n"
 
             tok_i += 1
         
@@ -325,6 +357,25 @@ def gen_asm_ARM(tokens) -> str:
 
             stack_depth += 1
             tok_i += 1
+        
+        elif tok == "pick":
+            if len(type_stack) > 0:
+                t1 = type_stack.pop()
+            else:
+                print(f"Compilation Error: 'pick' expects at least one value on the stack")
+                sys.exit(1)
+
+            program += "ldr     x0, [sp], #16\n"
+            program += "lsl     x1, x0, #4\n"
+            program += "ldr     x2, [sp, x1]\n"
+            program += "str     x2, [sp, #-16]!\n"
+            
+            type_stack.append("INT")
+            tok_i += 1
+
+            # Todo: x9 holds the number of items on the stack maybe ???
+            # any pick operation is checked so that it doesn't over or underflow the stack
+                # program "    ldr x9, [sp], #16"
 
         elif tok == "alloc":
             b = type_stack.pop()
@@ -340,9 +391,19 @@ def gen_asm_ARM(tokens) -> str:
             program += "    bl      _malloc\n"
             program += "    str     x0, [sp, #-16]!\n"
 
-            # print("Allocations: ", allocations)
 
             type_stack.append("PTR")
+            tok_i += 1
+
+        elif tok == "free":
+            if len(type_stack) < 1:
+                print(f"'free' expects a ptr on the stack, found nothing")
+                sys.exit(1)
+
+            program += "    ldr     x0, [sp], #16\n"
+            program += "    bl      _free\n"
+            
+            allocations.pop()
             tok_i += 1
 
         elif tok == "exit":
@@ -671,6 +732,46 @@ def gen_asm_ARM(tokens) -> str:
             stack_depth -= 1
             tok_i += 1
 
+        elif tok == "<=": # Less than or equal to
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                t2 = type_stack.pop()
+                if t1 == "STR" or t2 == "STR":
+                    print(f"Compilation Error: '==' expects integers or pointers, got: {t1} and {t2}")
+                    sys.exit(1)
+            
+            program += "    ldr     x1, [sp], #16\n"  # b
+            program += "    ldr     x0, [sp], #16\n"  # a
+            program += "    cmp     x0, x1\n"
+            # cset sets register to 1 if condition (eq = equal) is true, else 0
+            program += "    cset    x0, le\n"
+            program += "    str     x0, [sp, #-16]!\n"
+            
+            type_stack.append("INT")
+
+            stack_depth -= 1
+            tok_i += 1
+        
+        elif tok == ">=": # Greater than or equal to
+            if len(type_stack) > 1:
+                t1 = type_stack.pop()
+                t2 = type_stack.pop()
+                if t1 == "STR" or t2 == "STR":
+                    print(f"Compilation Error: '==' expects integers or pointers, got: {t1} and {t2}")
+                    sys.exit(1)
+            
+            program += "    ldr     x1, [sp], #16\n"  # b
+            program += "    ldr     x0, [sp], #16\n"  # a
+            program += "    cmp     x0, x1\n"
+            # cset sets register to 1 if condition (eq = equal) is true, else 0
+            program += "    cset    x0, ge\n"
+            program += "    str     x0, [sp, #-16]!\n"
+            
+            type_stack.append("INT")
+
+            stack_depth -= 1
+            tok_i += 1
+
         elif tok == "if": # If
             program += f".IF_BRANCH_{if_counter}:\n"
             control_stack.append(f"I{if_counter}")
@@ -758,22 +859,25 @@ def gen_asm_ARM(tokens) -> str:
                 sys.exit(1)
                 
             tok_i += 1
+
+        elif tok[0] == '@':
+            mac_id = tok[1:]
+            program += gen_asm_ARM(macros[mac_id], 0);
+            tok_i += 1
         
         elif tok[0] == '"': # String literal
-            # get pointer from page
-            # push pointer
+            string_value = tok
 
-            id = get_str_id(tok)
-            if id < 0:
-                print(f"ERROR: String literal has no matching id: {tok}")
-                sys.exit(1)
+            if string_value not in string_pool:
+                string_pool[string_value] = len(string_pool)
             
-            program += f"    adrp    x0, l_.STR.{id}@PAGE\n"
-            program += f"    add     x0, x0, l_.STR.{id}@PAGEOFF\n"
-            program +=  "    str     x0, [sp, #-16]!\n"
+            str_id = string_pool[string_value]
+
+            program += f"    adrp    x0, l_.STR.{str_id}@PAGE\n"
+            program += f"    add     x0, x0, l_.STR.{str_id}@PAGEOFF\n"
+            program +=  "    str     x0, [sp, #-16]!\n" 
 
             type_stack.append("STR")
-            
             stack_depth += 1
             tok_i += 1
 
@@ -793,21 +897,23 @@ def gen_asm_ARM(tokens) -> str:
     return program
 
 def gen_str_section_ARM(strings) -> str:
-    section =  "l_.PRINT_NUMBER:\n"
+    section = ""
+
+    """
+    section += "l_.PRINT_NUMBER:\n"
     section += "    .asciz  \"%ld\\12\\0\"\n"
-    section += "l_.SCANF_255s_FMT:\n"
-    section += "    .asciz  \"%255s\\0\"\n"
     section += "l_.PRINT_STRING:\n"
     section += "    .asciz  \"%s\\0\"\n\n"
+    """
 
-    str_lit_num = 0
-    for string in strings:
-        section += f"l_.STR.{str_lit_num}:\n"
+    section += "l_.SCANF_255s_FMT:\n"
+    section += "    .asciz  \"%255s\\0\"\n"
+
+    for string, str_id in string_pool.items():
+        section += f"l_.STR.{str_id}:\n"
         section += f"    .asciz  {string}\n"
-        str_lit_num += 1
     
     section += "\n"
-
     return section
 
 def gen_BSS_ARM() -> str:
@@ -918,16 +1024,17 @@ else:
         program += "    stp     x29, x30, [sp, #-16]!\n"
         program += "    mov     x29, sp\n"
 
-        program += gen_asm_ARM(tokens)
-        
-        # print(allocations)
+        program += gen_asm_ARM(tokens, 0)
 
+        # automatic free for any buffer not freed?
         if len(allocations) > 0:
-            program += "    ; Automatic memory deallocation\n"
+            program += "    ; automatic free"
+            print("You forgot to free some buffers, this might break your logic due to automatic free")
+            # print("To disable automatic free, use flag --no-cleanup")
             for alloc in allocations:
                 program += "    ldr     x0, [sp], #16\n"
                 program += "    bl      _free\n"
-
+        
         program += "    ; return\n"
         program += "    mov	    w0, #0\n"
         program += "    ldp     x29, x30, [sp], #16\n"

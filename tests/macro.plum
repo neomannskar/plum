@@ -1,0 +1,5 @@
+
+macro HELLO "Hello World!" "%s" println
+macro HELLO "Goodbye World!" "%s" println
+
+@HELLO

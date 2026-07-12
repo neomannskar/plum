@@ -2,8 +2,9 @@
 if
     dup 0 ==
 do
-    "Failed to allocate memory" print
+    "Failed to allocate memory" "%s" println
 else end
 
-"Allocation succeeded!" print
-"\t~ Memory automatically deallocated at end of program" print
+"Allocation succeeded!" "%s" println
+
+free

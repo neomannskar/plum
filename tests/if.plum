@@ -2,9 +2,7 @@
 if
     dup 1 <
 do
-    "True" print
+    "True" "%s" println
 else
-    "False" print
-end
-
-drop
+    "False" "%s" println
+end drop

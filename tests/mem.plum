@@ -1,7 +1,7 @@
 32 alloc if
     dup 0 ==
     do
-        "Failed to allocate memory" print
+        "Failed to allocate memory" "%s" println
         1 exit
     else
 end
@@ -10,12 +10,14 @@ end
     dup 32 <
     do
         over over dup []=
-        1 +
+        ++
 end drop
 
 0 while
     dup 32 <
     do
-        over over [] print
-        1 +
+        over over [] "%ld" println
+        ++
 end drop
+
+free

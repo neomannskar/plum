@@ -2,6 +2,6 @@
 while
     dup 10 < 
 do
-    "Hello World!" .
+    "Hello World!" "%s" println
     1 +
-end
+end drop
