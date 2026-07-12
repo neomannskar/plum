@@ -5,37 +5,45 @@ Plum is a simple compiled arithmetic stackbased programming language written in 
 
 > Note: Plum needs gcc on the system to assemble and link the generated assembly code. Full language only compiles to ARM right now, older code will run on x86_64.
 
-### Build a .plum file
+## Build a .plum file
 
 ```
-python plum.py <name/path to .plum file> <name/path for .s file> <name/path for executable>
+python plum.py <file>
 ```
 
-### Syntax Overview
+## Syntax Overview
 
 1. Any number will get pushed onto the stack, special case in while statement.
 2. Operators consume (pop) values from the stack, use the 'dup' keyword to duplicate the top value.
 3. 'if' and 'while' have the same condition and do blocks but the 'if' statement requires a matching 'else' even if it is empty.
 4. Take user input with the '?' operator, the value is stored in a BSS buffer which address is pushed to the stack.
 
+## Basic Examples
+
 ### Arithmetic
 ```
-10 5 + print --> 15
-10 5 - print --> 5
-10 5 * print --> 50
-10 5 / print --> 2
-10 5 % print --> 0
+10 5 + "%ld" println --> 15
+10 5 - "%ld" println --> 5
+10 5 * "%ld" println --> 50
+10 5 / "%ld" println --> 2
+10 5 % "%ld" println --> 0
 ```
 
 ### Duplicate
 ```
-1 dup + print --> 2
+1 dup + "%ld" println
+
+Output:
+2
 ```
 
 ### Swap
 
 ```
-10 20 swap - --> 10
+10 20 swap - "%ld" println
+
+Output:
+10
 ```
 
 ### If
@@ -47,10 +55,10 @@ do
     "True" print
 else
     "False" print
-end
+end drop
 
 Output:
-"False"
+False
 ```
 
 ### Loop
@@ -59,9 +67,9 @@ Output:
 while
     dup 10 <
 do
-    dup .
+    dup "%ld" println
     1 +
-end
+end drop
 
 Output:
 1
@@ -81,8 +89,8 @@ Output:
 while
     dup 1 ==
 do
-    ? print
-end
+    ? "%s" println
+end drop
 
 Output:
 Hello
