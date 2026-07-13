@@ -1,9 +1,9 @@
-0 if
-    dup 1 ==
-do
-    0 exit
-else
-    1 exit
-end drop
-
-# echo $? --> 1
+proc main
+    0 if
+        dup 1 ==
+    do
+        0 exit
+    else
+        1 exit
+    end drop
+end

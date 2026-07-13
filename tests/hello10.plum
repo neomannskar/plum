@@ -1,7 +1,8 @@
-0
-while
-    dup 10 < 
-do
-    "Hello World!" "%s" println
-    1 +
-end drop
+
+proc main
+    0 while dup 10 < 
+    do
+        "Hello World!" "%s" println
+        1 +
+    end drop
+end

@@ -1,6 +1,6 @@
-0
-while
-    dup 1 !=
-do
-    ? "%s" println
-end drop
+proc main
+    0 while dup 1 !=
+    do
+        ? "%s" println
+    end drop
+end
