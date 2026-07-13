@@ -1,0 +1,13 @@
+macro greet "Hello World!" "%s" println
+
+proc greet10
+    0 while dup 10 <
+    do
+        @greet
+        ++
+    end drop
+end
+
+proc main
+    !greet10
+end

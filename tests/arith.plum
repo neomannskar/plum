@@ -1,3 +1,5 @@
-10 20 + dup "%ld" println
-5 * dup "%ld" println
-2 / "%ld" println
+proc main
+    10 20 + dup "%ld" println
+    5 * dup "%ld" println
+    2 / "%ld" println
+end

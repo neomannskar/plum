@@ -1,0 +1,446 @@
+import sys
+
+def todo():
+    print("Not implemented yet!")
+    sys.exit(1)
+
+def is_integer(token):
+    try:
+        int(token)
+        return True
+    except ValueError:
+        return False
+
+class Generator:
+    tokens: list
+    str_lits: list
+    tok_len: int = 0
+    tok_iter: int = 0
+    procedures: dict = []
+    procedure: list = []
+    procedure: str = ""
+    
+    if_counter: int = 0
+    while_counter: int = 0
+    control_stack: list = []
+
+    string_pool: dict = {}
+
+    program: str = ""
+
+    def __init__(self, tokens, str_literals):
+        self.tok_len = len(tokens)
+        self.tokens = tokens
+        self.str_lits = str_literals
+        pass
+
+    def advance(self):
+        self.tok_iter += 1
+    
+    def current(self) -> str:
+        if self.tok_iter >= self.tok_len:
+            return None
+        return self.tokens[self.tok_iter]
+    
+    def next(self) -> str:
+        self.tok_iter += 1
+        if self.tok_iter >= self.tok_len:
+            return None
+        return self.tokens[self.tok_iter]
+
+    def program_comment(self, comment: str) -> str:
+        self.program += ";    {comment}\n"
+
+    def comment(self, comment: str):
+        self.procedure += f"    ;    {comment}\n"
+
+    def tag(self, tag: str):
+        self.program += f"    {tag}\n"
+
+    def symbol(self, symbol: str):
+        self.program += f"{symbol}:\n"
+    
+    def inst(self, op, operand):
+        width = 8
+        self.procedure += f"    {op:<{width}}{operand}\n"
+
+    def if_branch(self):
+        self.procedure += f".IF_BRANCH_{self.if_counter}:"
+        self.control_stack.append(f"I{self.if_counter}")
+        self.if_counter += 1
+        #initial_depth = stack_depth
+    
+    def else_branch(self):
+        """
+        if stack_depth > initial_depth:
+            program += "; Auto-drop\n"
+            program += f"    add     sp, sp, #{(stack_depth - initial_depth) * 16}\n"
+            stack_depth = initial_depth
+        
+        if control_stack[-1][0] != 'I':
+                print(f"Compilation Error: Unexpected 'else', missing associated 'if'\n\tFound: {control_stack[-1]}")
+                sys.exit(1)
+        """
+
+        _if = self.control_stack[-1][-1]
+        self.inst("b", f".END_BRANCH_{_if}")
+        self.procedure += f".ELSE_BRANCH_{_if}:\n"
+        self.comment("Else-branch:")
+        #stack_depth = initial_depth
+
+    def while_branch(self):
+        self.procedure += f".WHILE_START_{self.while_counter}:"
+        self.control_stack.append(f"W{self.while_counter}")
+        self.while_counter += 1
+        #initial_depth = stack_depth
+    
+    def do(self):
+        match self.control_stack[-1][0]:
+            case 'I':
+                _if = self.control_stack[-1][-1]
+                self.pop("x0")
+                self.inst("cmp", "x0, #0")
+                self.inst("b.eq", f".ELSE_BRANCH_{_if}")
+                self.comment("Then-branch:")
+            case 'W':
+                _while = self.control_stack[-1][-1]
+                self.pop("x0")
+                self.inst("cmp", "x0, #0")
+                self.inst("b.eq", f".WHILE_END_{_while}")
+            case _:
+                print(f"Implementation Error: Unknown value in control_stack: {self.control_stack[-1]}")
+                sys.exit(1)
+        #stack_depth -= 1
+
+    def end(self):
+        """
+        if stack_depth > initial_depth:
+            program += "; Auto-drop\n"
+            program += f"    add     sp, sp, #{(stack_depth - initial_depth) * 16}\n"
+            stack_depth = initial_depth
+        """
+        id_val = self.control_stack.pop()
+        id = id_val[-1]
+        match id_val[0]:
+            case 'I':
+                self.procedure += f".END_BRANCH_{id}:\n"
+            case 'W':
+                self.inst("b", f".WHILE_START_{id}")
+                self.procedure += f".WHILE_END_{id}:\n"
+            case _:
+                print(f"Implementation Error: Unknown value in control_stack: {self.control_stack[-1]}")
+                sys.exit(1)
+
+    def peek(self, reg: str):
+        self.inst("ldr", f"{reg}, [sp]")
+
+    def pop(self, reg: str):
+        self.inst("ldr", f"{reg}, [sp], #16")
+
+    def push(self, reg: str):
+        self.inst("str", f"{reg}, [sp, #-16]!")
+
+    def gen_asm(self):
+        prev = ""
+        curr = self.current()
+
+        while self.tok_iter < self.tok_len:
+            prev = curr
+            curr = self.current()
+
+            self.comment(curr)
+            
+            match curr:
+                case "print":
+                    # Handle type_stack
+                    self.pop("x0")
+                    self.inst("bl", "_printf")
+                    self.inst("add", "sp, sp, #16")
+                    # stack_depth -= 2
+                case "println":
+                    self.pop("x0")
+                    self.inst("bl", "_printf")
+                    self.inst("add", "sp, sp, #16")
+                    self.inst("mov", "x0, #10")
+                    self.inst("bl", "_putchar")
+                    # stack_depth -= 2
+                case "?":
+                    self.inst("adrp", "x1, _io@PAGE")
+                    self.inst("add", "x1, x1, _io@PAGEOFF")
+                    self.comment("Push Buffer Address")
+                    self.push("x1")
+                    self.inst("adrp", "x0, l_.SCANF_255s_FMT@PAGE")
+                    self.inst("add", "x0, x0, l_.SCANF_255s_FMT@PAGEOFF")
+                    self.inst("bl", "_scanf")
+                    # stack_depth += 1
+                case "dup":
+                    self.peek("x0")
+                    self.push("x0")
+                    # stack_depth += 1
+                case "drop":
+                    self.inst("add", "sp, sp, #16")
+                    # stack_depth -= 1
+                case "swap":
+                    self.peek("x0")
+                    self.inst("ldr", "x1, [sp, #16]")
+                    self.inst("str", "x1, [sp]")
+                    self.inst("str", "x0, [sp, #16]")
+                case "rot":
+                    self.comment("[a, b, c] --> [b, c, a]")
+                    self.peek("x0")
+                    self.inst("ldr", "x1, [sp, #16]")
+                    self.inst("ldr", "x2, [sp, #32]")
+                    self.inst("str", "x1, [sp, #32]")
+                    self.inst("str", "x0, [sp, #16]")
+                    self.inst("str", "x2, [sp]")
+                case "over":
+                    self.inst("ldr", "x0, [sp, #16]")
+                    self.push("x0")
+                    # stack_depth += 1
+                case "pick":
+                    self.pop("x0")
+                    self.inst("lsl", "x1, x0, #4")
+                    self.inst("ldr", "x2, [sp, x1]")
+                    self.push("x2")
+                case "alloc":
+                    self.pop("x0")
+                    self.inst("lsl", "x0, x0, #3")
+                    self.inst("bl", "_malloc")
+                    self.push("x0")
+                case "free":
+                    self.pop("x0")
+                    self.inst("bl", "_free")
+                    # stack_depth -= 1
+                case "exit":
+                    self.pop("x0")
+                    self.inst("bl", "_exit")
+                case "[]":
+                    self.pop("x0")
+                    self.pop("x1")
+                    self.inst("ldr", "x0, [x1, x0, lsl #3]")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case "[]=":
+                    self.pop("x0")
+                    self.pop("x1")
+                    self.pop("x2")
+                    self.inst("str", "x0, [x2, x1, lsl #3]")
+                    # stack_depth -= 3
+                case "if":
+                    self.if_branch()
+                case "while":
+                    self.while_branch()
+                case "do":
+                    self.do()
+                case "else":
+                    self.else_branch()
+                case "end":
+                    if len(self.control_stack) > 0:
+                        self.end()
+                    else:
+                        # self.pop("x0")
+                        self.inst("mov", "x0, #0")
+                        self.inst("ldp", "x29, x30, [sp], #16")
+                        self.inst("ret", "")
+                        return
+                case "++":
+                    self.pop("x0")
+                    self.inst("add", "x0, x0, #1")
+                    self.push("x0")
+                case "--":
+                    self.pop("x0")
+                    self.inst("sub", "x0, x0, #1")
+                    self.push("x0")
+                case "+":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("add", "x0, x0, x1")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case "-":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("sub", "x0, x0, x1")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case "*":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("mul", "x0, x0, x1")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case "/":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("sdiv", "x0, x0, x1")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case '%':
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("sdiv", "x2, x0, x1")
+                    self.inst("msub", "x0, x2, x1, x0")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case "&":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("and", "x0, x0, x1")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case "|":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("orr", "x0, x0, x1")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case "<<":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("lsl", "x0, x0, x1")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case ">>":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("asr", "x0, x0, x1")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case "<":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("cmp", "x0, x1")
+                    self.inst("cset", "x0, lt")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case ">":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("cmp", "x0, x1")
+                    self.inst("cset", "x0, gt")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case "==":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("cmp", "x0, x1")
+                    self.inst("cset", "x0, eq")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case "!=":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("cmp", "x0, x1")
+                    self.inst("cset", "x0, ne")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case "<=":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("cmp", "x0, x1")
+                    self.inst("cset", "x0, le")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case ">=":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("cmp", "x0, x1")
+                    self.inst("cset", "x0, ge")
+                    self.push("x0")
+                    # stack_depth -= 1
+                case _:
+                    if curr[0] == '"':
+                        string_lit = curr
+                        if string_lit not in self.string_pool:
+                            self.string_pool[string_lit] = len(self.string_pool)
+                        str_id = self.string_pool[string_lit]
+
+                        self.inst("adrp", f"x0, l_.STR.{str_id}@PAGE")
+                        self.inst("add", f"x0, x0, l_.STR.{str_id}@PAGEOFF")
+                        self.push("x0")
+                        # stack_depth += 1
+                    elif curr[0] == '!':
+                        proc_callee = '_' + curr[1:]
+                        if not proc_callee in self.procedures:
+                            print(f"Compilation Error: No known procedure: {proc_callee[1:]}")
+                            sys.exit(1)
+                        
+                        self.inst("bl", f"{proc_callee}")
+                    else:
+                        if not is_integer(curr):
+                            print(f"Compilation Error: Unexpected token: {curr}")
+                            sys.exit(1)
+                        
+                        self.inst("mov", f"x0, #{curr}")
+                        self.push("x0")
+                        # stack_depth += 1
+
+            self.advance()
+
+    def gen(self) -> str:
+        prev = ""
+        curr = self.current()
+        
+        self.tag(".section	__TEXT,__text,regular,pure_instructions")
+        self.tag(".build_version macos, 26, 0	sdk_version 26, 2")
+        
+        while self.tok_iter < self.tok_len:
+            prev = curr
+            curr = self.current()
+            
+            match curr:
+                case "proc":
+                    name = self.next()
+                    if name:
+                        name = f"_{name}"
+                        self.tag(f".globl  {name}")
+                        self.tag(".p2align    2")
+                        self.symbol(name)
+                        self.inst("stp", "x29, x30, [sp, #-16]!")
+                        
+                        self.advance()
+
+                        self.gen_asm()
+
+                        self.procedures.append(name)
+                        self.program += self.procedure
+                        self.program += "\n"
+                        self.procedure = ""
+                    else:
+                        print("Error: Missing procedure name:\n\tproc\n\t~    ^")
+                        sys.exit(1)
+                case _:
+                    print(f"Error: Unexpected token in program root: {curr}")
+                    self.advance()
+                    continue
+
+            self.advance()
+        
+        self.program += "\n"
+        self.gen_str_section()
+        self.gen_BSS()
+
+        return self.program
+
+    def gen_str_section(self):
+        section = ""
+
+        """
+        section += "l_.PRINT_NUMBER:\n"
+        section += "    .asciz  \"%ld\\12\\0\"\n"
+        section += "l_.PRINT_STRING:\n"
+        section += "    .asciz  \"%s\\0\"\n\n"
+        """
+
+        section += "l_.SCANF_255s_FMT:\n"
+        section += "    .asciz  \"%255s\\0\"\n"
+
+        for string, str_id in self.string_pool.items():
+            section += f"l_.STR.{str_id}:\n"
+            section += f"    .asciz  {string}\n"
+        
+        section += "\n"
+        self.program += section
+
+    def gen_BSS(self):
+        self.program += ".zerofill __DATA,__bss,_io,256,0\n"

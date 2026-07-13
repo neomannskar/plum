@@ -1,23 +1,23 @@
-32 alloc if
-    dup 0 ==
+proc main
+    32 alloc
+    
+    if dup 0 ==
     do
         "Failed to allocate memory" "%s" println
         1 exit
-    else
-end
+    else end
 
-0 while
-    dup 32 <
+    0 while dup 32 <
     do
         over over dup []=
         ++
-end drop
+    end drop
 
-0 while
-    dup 32 <
+    0 while dup 32 <
     do
         over over [] "%ld" println
         ++
-end drop
+    end drop
 
-free
+    free
+end

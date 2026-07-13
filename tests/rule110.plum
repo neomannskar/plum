@@ -1,131 +1,79 @@
-# macro ARRAY_SIZE
+proc main
+    "Rule 110 Generation" "%s" println
 
-"Rule 110 Generation" "%s" println
+    16 alloc # [ scratch ]
+    if dup 0 == do "Alloc failed" "%s" println 1 exit else end
+    64 alloc # [ scratch, curr ]
+    64 alloc # [ scratch, curr, next ]
+    65 alloc # [ scratch, curr, next, display ]
 
-# =========================================================================
-# 1. ALLOCATION & SETTING UP THE STACK FRAME
-# =========================================================================
-# Vi lägger baspekarna på stacken. Denna ordning ändras ALDRIG:
-# Index från toppen (när inga loop-variabler är aktiva):
-# 0 = display, 1 = next, 2 = curr, 3 = scratch
-
-16 alloc # [ scratch ]
-if dup 0 == do "Alloc failed" "%s" println 1 exit else end
-64 alloc # [ scratch, curr ]
-64 alloc # [ scratch, curr, next ]
-65 alloc # [ scratch, curr, next, display ]
-
-# =========================================================================
-# 2. CLEARING BUFFERS & SEEDING THE AUTOMATA
-# =========================================================================
-
-# Rensa curr (index 2, men blir index 3 när looppekaren pushas)
-0 while dup 64 < do
-    3 pick over 0 []=   
-    ++
-end drop
-
-# Rensa next (index 1, men blir index 2 när looppekaren pushas)
-0 while dup 64 < do
-    2 pick over 0 []=   
-    ++
-end drop
-
-# Sätt fröet (1) i curr på index 62 (ingen looppekare på stacken -> index 2)
-2 pick 62 1 []=
-
-# =========================================================================
-# 3. MAIN GENERATION LOOP
-# =========================================================================
-0 # Pusha y-loop counter (generations)
-while dup 62 < do # Kör 62 generationer
-    
-    # ---------------------------------------------------------------------
-    # INNER LOOP: Beräkna nästa generation
-    # ---------------------------------------------------------------------
-    1 # Pusha x-loop counter (char_pos, starta på 1 för att undvika overflow)
-    while dup 63 < do
-        # Stacken just nu: [ scratch, curr, next, display, y, x ]
-        # Index: x=0, y=1, display=2, next=3, curr=4, scratch=5
-        
-        # 1. Hämta left (curr[x-1])
-        4 pick over 1 - []  
-        
-        # Stacken har nu +1 element. Index för curr är nu 5, index för x är 1
-        5 pick 2 pick []    # Hämta center (curr[x])
-        
-        # Stacken har nu +2 element. Index för curr är 6, index för x är 2
-        6 pick 3 pick 1 + [] # Hämta right (curr[x+1])
-        
-        # Beräkna Rule 110 pattern: (left << 2) | (center << 1) | right
-        swap 1 << |
-        swap 2 << |         
-        
-        # Applicera Rule 110-logik: (110 >> pattern) & 1
-        110 swap >> 1 &     # Ger next_cell_val
-        
-        # Spara i next[x]. 
-        # Stacken nu: [ scratch, curr, next, display, y, x, next_cell_val ]
-        # Index: val=0, x=1, y=2, display=3, next=4
-        4 pick              # Hämta next_ptr
-        2 pick              # Hämta x
-        2 pick              # Flytta upp next_cell_val till toppen
-        []=                 # next[x] = next_cell_val
-        drop
-
-        ++                  # x++
-    end drop # Droppa x-counter
-    
-    # ---------------------------------------------------------------------
-    # 4. RENDER RAD DIREKT TILL SKÄRMEN (Med %c)
-    # ---------------------------------------------------------------------
-    0 # Pusha render_index
-    while dup 64 < do
-        # Stacken nu: [ scratch, curr, next, display, y, r_idx ]
-        # Index: r_idx=0, y=1, display=2, next=3, curr=4
-        4 pick over []      # Läs från curr[r_idx] (Index 4)
-        
-        if 1 == do
-            35 "%c" print   # Skriv ut '#' direkt (ASCII 35)
-        else
-            32 "%c" print   # Skriv ut ' ' direkt (ASCII 32)
-        end
-        ++
-    end drop
-    
-    # Skriv ut en nyrad (\n = ASCII 10) efter att hela raden är klar
-    10 "%c" print
-    
-    # ---------------------------------------------------------------------
-    # 5. SÄKER BUFFERKOPIERING (Istället för krånglig pointer-swap)
-    # ---------------------------------------------------------------------
-    # Att fysiskt flytta variabler i stackbotten är farligt. Det är mycket 
-    # säkrare att bara kopiera över datan från next till curr inför nästa varv.
     0 while dup 64 < do
-        # Stacken nu: [ scratch, curr, next, display, y, c_idx ]
-        # Index: c_idx=0, y=1, display=2, next=3, curr=4
-        3 pick over []      # Läs från next[c_idx]
-        
-        # Stacken har +1 element: [ ..., c_idx, next_val ]
-        # Index: val=0, c_idx=1, y=2, display=3, next=4, curr=5
-        5 pick              # Hämta curr
-        2 pick              # Hämta c_idx
-        2 pick              # Hämta next_val
-        []=                 # curr[c_idx] = next_val
-        drop
-
+        3 pick over 0 []=   
         ++
     end drop
-    
-    ++ # y++ (nästa generation)
-end drop # Droppa y-counter
 
-# =========================================================================
-# 6. CLEAN UP & DEALLOCATE
-# =========================================================================
-free # display
-free # next
-free # curr
-free # scratch
+    0 while dup 64 < do
+        2 pick over 0 []=   
+        ++
+    end drop
 
-"Execution finished successfully!" "%s" println
+    2 pick 62 1 []=
+
+    0 while dup 62 < do
+        
+        1 while dup 63 < do
+            4 pick over 1 - []  
+            
+            5 pick 2 pick []
+            
+            6 pick 3 pick 1 + []
+            
+            swap 1 << |
+            swap 2 << |         
+            
+            110 swap >> 1 &
+            
+            4 pick
+            2 pick
+            2 pick
+            []=
+            drop
+
+            ++
+        end drop
+        
+        0 while dup 64 < do
+            4 pick over []
+            
+            if 1 == do
+                35 "%c" print
+            else
+                32 "%c" print
+            end
+            ++
+        end drop
+        
+        10 "%c" print
+        
+        0 while dup 64 < do
+            3 pick over []
+            
+            5 pick
+            2 pick
+            2 pick
+            []=
+            drop
+
+            ++
+        end drop
+        
+        ++
+    end drop
+
+    free
+    free
+    free
+    free
+
+    "Execution finished successfully!" "%s" println
+end
