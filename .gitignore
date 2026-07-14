@@ -223,5 +223,5 @@ __marimo__/
 *.out
 
 build/
-assembly/*
+assembly/
 c/

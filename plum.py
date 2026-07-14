@@ -5,8 +5,8 @@ import platform
 import argparse
 import subprocess
 
-# import plum_win_lin_x86_64 as win_lin_x86_64
-import plum_mac_arm as mac_arm
+# import plum_win_lin_x86_64
+import plum_mac_arm
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -106,23 +106,29 @@ os_type = platform.system().lower()
 # CPU Architecture
 architecture = platform.machine().lower()
 
+Generator = None
+
 if os_type == "darwin":
     if "arm64" in architecture or "aarch64" in architecture:
         from plum_mac_arm import Generator
 
     elif "x86_64" in architecture:
-        print(f"Not implemented yet!\n\tArchitecture: {architecture}\n\tOS: {os_type}")
-
+        raise NotImplementedError(f"macOS x86_64 is not implemented yet!")
+    
 elif os_type == "linux" or os_type == "windows":
     if "arm64" in architecture or "aarch64" in architecture:
-        print(f"Not implemented yet!\n\tArchitecture: {architecture}\n\tOS: {os_type}")
+        raise NotImplementedError(f"Linux/Windows ARM64 is not implemented yet!")
     elif "x86_64" in architecture:
         print("TODO: Windows/Linux x86_64")
+        # from plum_win_lin_x86_64 import Generator
 else:
     if "arm" in architecture:
         print(f"Not implemented yet!\n\tArchitecture: {architecture}\n\tOS: {os_type}")
     else:
-        print(f"Unknown architecture/OS combination:\n\tArchitecture: {architecture}\n\tOS: {os_type}")
+        raise OSError(f"Unsupported OS/Architecture: {os_type} ({architecture})")
+
+if Generator is None:
+    raise RuntimeError("Generator was not loaded properly.")
 
 generator = Generator(tokens, str_literals)
 asm = generator.gen()
