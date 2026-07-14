@@ -1,4 +1,4 @@
-<img height="128" alt="PLUM LOGO" src="./media/plum.png">
+<img height="128" alt="bild" src="https://github.com/user-attachments/assets/f97b50fd-fd72-4809-911a-0baae1966e8d" />
 
 # Plum
 Plum is a simple compiled stack-based programming language
@@ -16,5 +16,4 @@ python plum.py <.plum file>
 Compiling a file will create a .s file on the system.
 
 ## Rule110
-
 
