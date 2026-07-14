@@ -16,3 +16,5 @@ python plum.py <.plum file>
 Compiling a file will create a .s file on the system.
 
 ## Rule110
+
+<img width="333" height="663" alt="Skärmavbild 2026-07-14 kl  01 59 08" src="https://github.com/user-attachments/assets/7a8aa1de-bad6-4861-901c-eed18eb5c22a" />
