@@ -1,5 +1,8 @@
-proc main
-    10 20 + dup "%ld" println
-    5 * dup "%ld" println
-    2 / "%ld" println
+import "std/io"
+
+proc main :
+    10 20 + dup "%ld" @println
+    5 * dup "%ld" @println
+    2 / "%ld" @println
+    0 return
 end

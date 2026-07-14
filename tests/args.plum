@@ -1,0 +1,11 @@
+import "std/io"
+
+proc add 2 :
+    + "%d" @println
+    0 return
+end
+
+proc main :
+    1 2 add! "%d" @println
+    0 return
+end

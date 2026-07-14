@@ -1,0 +1,3 @@
+macro print intrinsic__printf
+macro println intrinsic__printf_ln
+macro stdin intrinsic__scanf

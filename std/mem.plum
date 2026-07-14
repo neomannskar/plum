@@ -1,0 +1,38 @@
+import "std/io"
+
+macro SMART_ALLOC_MAX_PTR_COUNT 128
+
+static smart_alloc_count 1
+static smart_alloc_list_ptr 1
+
+proc smart_alloc 1 :
+   .smart_alloc_list_ptr 0 [] if 0 ==
+   do
+      @SMART_ALLOC_MAX_PTR_COUNT alloc
+      if dup 0 ==
+      do
+         "Failed to initialize smart_alloc!" "%s" @println
+      else end
+
+      .smart_alloc_list_ptr 0 rot []=
+      .smart_alloc_count 0 0 []=
+   else end
+   
+   alloc if dup 0 == do
+      return
+   else end
+
+   dup .smart_alloc_list_ptr 0 [] .smart_alloc_count 0 [] rot []=
+   .smart_alloc_count 0 [] ++ .smart_alloc_count 0 rot []=
+
+   return
+end
+
+proc smart_free :
+   0 while dup .smart_alloc_count 0 [] <
+   do
+      dup .smart_alloc_list_ptr 0 [] rot [] free ++
+   end drop
+
+   0 return
+end

@@ -1,7 +1,9 @@
+import "std/io"
 
-macro HELLO "Hello World!" "%s" println
-macro HELLO "Goodbye World!" "%s" println
+macro HELLO "Hello World!" "%s" @println
+macro HELLO "Goodbye World!" "%s" @println
 
-proc main
+proc main :
     @HELLO
+    0 return
 end

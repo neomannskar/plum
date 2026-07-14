@@ -42,35 +42,83 @@ def parse_args():
 
     return args.source, asm_file, out_file
 
+COMPILER_DIR = os.path.dirname(os.path.abspath(__file__))
+
 def read_file(file) -> str:
     with open(file, 'r', encoding='utf-8') as f:
-        source_code = f.read()
-    
-    return source_code
+        content = f.read()
+    return content
 
-def expand_macros(source_code):
-    macros = {}
+def strip_comments(source) -> str:
+    pattern = re.compile(r'("[^"\n]*")|#[^\n]*')
+    return pattern.sub(lambda m: m.group(1) if m.group(1) is not None else '', source)
+
+def resolve_imports(source, imported_files=None) -> str:
+    if imported_files is None:
+        imported_files = set()
     
+    import_pattern = re.compile(r'^import\s+"([^"]+)"\s*$', re.MULTILINE)
+    
+    def replace_import(match):
+        import_path = match.group(1)
+        full_path = os.path.abspath(os.path.join(COMPILER_DIR, f"{import_path}.plum"))
+        
+        if full_path in imported_files:
+            return ""
+        
+        if not os.path.exists(full_path):
+            raise FileNotFoundError(f"Kunde inte hitta den importerade filen: {full_path}")
+            
+        imported_files.add(full_path)
+        imported_content = strip_comments(read_file(full_path))
+        return resolve_imports(imported_content, imported_files)
+    
+    return import_pattern.sub(replace_import, source)
+
+def expand_macros(source) -> str:
+    macros = {}
     macro_pattern = re.compile(r'^macro\s+(\w+)\s+(.*)$', re.MULTILINE)
     
-    for match in macro_pattern.finditer(source_code):
+    for match in macro_pattern.finditer(source):
         name = match.group(1)
         value = match.group(2)
         macros[name] = value
         
-    clean_code = macro_pattern.sub('', source_code)
+    clean_code = macro_pattern.sub('', source)
     
+    macro_name = ""
+
     def replace_match(match):
+        nonlocal macro_name
         macro_name = match.group(1)
         return macros.get(macro_name, match.group(0))
     
-    expanded_code = re.sub(r'@(\w+)', replace_match, clean_code)
+    expanded_code = clean_code
+    max_depth = 100
+    depth = 0
+    
+    while depth < max_depth:
+        next_code = re.sub(r'@(\w+)', replace_match, expanded_code)
+        if next_code == expanded_code:
+            break
+        expanded_code = next_code
+        depth += 1
+    else:
+        raise RecursionError(
+            f"Preprocessing Error: Recursive macro expands over maximum depth. Macro: {macro_name}"
+        )
+    
     return expanded_code, macros
+
+def preprocess(source) -> str:
+    clean_source = strip_comments(source)
+    full_source = resolve_imports(clean_source)
+    code, _macros = expand_macros(full_source)
+    return code
 
 def tokenize(source_code):
     STRING_REGEX = r'"[^"\n]*"'
-    COMMENT_REGEX = re.compile(r'#[^\n]*')
-    WHITESPACE_SPLIT = re.compile(r'[ \t\n]+')
+    WHITESPACE_SPLIT = re.compile(r'\s+')
 
     tokens = []
     str_literals = []
@@ -83,22 +131,14 @@ def tokenize(source_code):
             tokens.append(chunk)
             str_literals.append(chunk)
         else:
-            chunk = COMMENT_REGEX.sub('', chunk)
             sub_chunks = WHITESPACE_SPLIT.split(chunk)
             tokens.extend([t for t in sub_chunks if t])
     
     return tokens, str_literals
 
-def is_integer(token):
-    try:
-        int(token)
-        return True
-    except ValueError:
-        return False
-
 s_file, a_file, o_file = parse_args()
 source = read_file(s_file)
-source_code, macros = expand_macros(source)
+source_code = preprocess(source)
 tokens, str_literals = tokenize(source_code)
 
 # Operating System
@@ -123,7 +163,7 @@ elif os_type == "linux" or os_type == "windows":
         # from plum_win_lin_x86_64 import Generator
 else:
     if "arm" in architecture:
-        print(f"Not implemented yet!\n\tArchitecture: {architecture}\n\tOS: {os_type}")
+        raise NotImplementedError(f"{os_type} ({architecture})\n")
     else:
         raise OSError(f"Unsupported OS/Architecture: {os_type} ({architecture})")
 

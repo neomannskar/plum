@@ -1,8 +1,10 @@
-proc main
-    "Rule 110 Generation" "%s" println
+import "std/io"
+
+proc main :
+    "Rule 110 Generation" "%s" @println
 
     16 alloc # [ scratch ]
-    if dup 0 == do "Alloc failed" "%s" println 1 exit else end
+    if dup 0 == do "Alloc failed" "%s" @println 1 exit else end
     64 alloc # [ scratch, curr ]
     64 alloc # [ scratch, curr, next ]
     65 alloc # [ scratch, curr, next, display ]
@@ -46,14 +48,14 @@ proc main
             4 pick over []
             
             if 1 == do
-                35 "%c" print
+                35 "%c" @print
             else
-                32 "%c" print
+                32 "%c" @print
             end
             ++
         end drop
         
-        10 "%c" print
+        10 "%c" @print
         
         0 while dup 64 < do
             3 pick over []
@@ -75,5 +77,7 @@ proc main
     free
     free
 
-    "Execution finished successfully!" "%s" println
+    "Execution finished successfully!" "%s" @println
+
+    0 return
 end
