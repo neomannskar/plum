@@ -16,7 +16,8 @@ class Generator:
     str_lits: list
     tok_len: int = 0
     tok_iter: int = 0
-    procedures: dict = []
+    procedures: list = []
+    procedure_args: dict = {}
     procedure: list = []
     procedure: str = ""
     
@@ -294,6 +295,15 @@ class Generator:
                     self.inst("orr", "x0, x0, x1")
                     self.push("x0")
                     # stack_depth -= 1
+                case "^":
+                    self.pop("x1")
+                    self.pop("x0")
+                    self.inst("eor", "x0, x0, x1")
+                    self.push("x0")
+                case "~":
+                    self.pop("x0")
+                    self.inst("mvn", "x0, x0")
+                    self.push("x0")
                 case "<<":
                     self.pop("x1")
                     self.pop("x0")
@@ -361,10 +371,15 @@ class Generator:
                         # stack_depth += 1
                     elif curr[0] == '!':
                         proc_callee = '_' + curr[1:]
+                        self.comment("Load arguments")
+                        for i in range(0, self.procedure_args[proc_callee]):
+                            self.inst("ldr", f"x{i}, [sp], #16") # pop from stack
+
                         if not proc_callee in self.procedures:
                             print(f"Compilation Error: No known procedure: {proc_callee[1:]}")
                             sys.exit(1)
                         
+                        self.comment("Call")
                         self.inst("bl", f"{proc_callee}")
                     else:
                         if not is_integer(curr):
@@ -397,6 +412,29 @@ class Generator:
                         self.tag(".p2align    2")
                         self.symbol(name)
                         self.inst("stp", "x29, x30, [sp, #-16]!")
+                        
+                        self.advance()
+                        if self.current() == ":":
+                            self.procedure_args[name] = 0
+                        elif is_integer(self.current()):
+                            i = int(self.current())
+                            if i > 7:
+                                print("Maximum number of procedure arguments reached!\n\tProcedures can only take 7 arguments in Plum v1.0")
+                                sys.exit(1)
+                            
+                            self.procedure_args[name] = i
+                            self.advance()
+                            if self.current() != ":":
+                                width = " " * len(name[1:])
+                                print(f"Compilation Error: Unexpected token in procedure defintion: {self.current()}\n\n\tproc {name[1:]} {i}\n\t~ {width}  ^\n\nExpected number of arguments or an opening ':'")
+                                sys.exit(1)
+                        else:
+                            width = " " * len(name[1:])
+                            print(f"Compilation Error: Unexpected token in procedure defintion: {self.current()}\n\n\tproc {name[1:]}\n\t~ {width} ^\n\nExpected number of arguments or an opening ':'")
+                            sys.exit(1)
+                        
+                        for i in range(0, self.procedure_args[name]):
+                            self.push(f"x{i}")
                         
                         self.advance()
 

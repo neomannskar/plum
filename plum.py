@@ -123,7 +123,7 @@ elif os_type == "linux" or os_type == "windows":
         # from plum_win_lin_x86_64 import Generator
 else:
     if "arm" in architecture:
-        print(f"Not implemented yet!\n\tArchitecture: {architecture}\n\tOS: {os_type}")
+        raise NotImplementedError(f"{os_type} ({architecture})\n")
     else:
         raise OSError(f"Unsupported OS/Architecture: {os_type} ({architecture})")
 

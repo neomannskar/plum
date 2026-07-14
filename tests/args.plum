@@ -1,0 +1,7 @@
+proc add 2 :
+    + "%d" println
+end
+
+proc main :
+    1 2 !add
+end

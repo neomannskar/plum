@@ -16,4 +16,3 @@ python plum.py <.plum file>
 Compiling a file will create a .s file on the system.
 
 ## Rule110
-
