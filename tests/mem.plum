@@ -1,9 +1,11 @@
-proc main
+import "std/io"
+
+proc main :
     32 alloc
     
     if dup 0 ==
     do
-        "Failed to allocate memory" "%s" println
+        "Failed to allocate memory" "%s" @println
         1 exit
     else end
 
@@ -15,9 +17,11 @@ proc main
 
     0 while dup 32 <
     do
-        over over [] "%ld" println
+        over over [] "%ld" @println
         ++
     end drop
 
     free
+
+    0 return
 end

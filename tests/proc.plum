@@ -1,14 +1,17 @@
-macro greet "Hello World!" "%s" println
+import "std/io"
 
-proc greet10:
-0 while dup 10 <
-do
-    @greet
-    ++
-end drop
+macro greet "Hello World!" "%s" @println
+
+proc greet10 :
+    0 while dup 10 <
+    do
+        @greet
+        ++
+    end drop
+    0 return
 end
 
-proc main:
-    1 2 3
-    !greet10
+proc main :
+    greet10! drop
+    0 return
 end

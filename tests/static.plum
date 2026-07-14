@@ -1,0 +1,9 @@
+import "std/io"
+
+static buffer 128 # -> .zerofill __DATA,__bss,_buffer,1024,3
+
+proc main :
+    .buffer # Push address of 'buffer'
+    "%p" @println
+    0 return
+end

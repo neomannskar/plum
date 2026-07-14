@@ -1,8 +1,7 @@
 import "std/io"
 
 proc add 2 :
-    + "%d" @println
-    0 return
+    + return
 end
 
 proc main :

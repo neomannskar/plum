@@ -1,12 +1,15 @@
-proc main
+import "std/io"
+
+proc main :
     32 alloc
 
     if dup 0 ==
     do
-        "Failed to allocate memory" "%s" println
+        "Failed to allocate memory" "%s" @println
     else end
 
-    "Allocation succeeded!" "%s" println
+    "Allocation succeeded!" "%s" @println
 
     free
+    0 return
 end
