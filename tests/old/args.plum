@@ -1,0 +1,13 @@
+import "std/io"
+
+static buffer long 128
+
+proc add ( qword qword ) qword :
+    + return
+end
+
+proc main ( ) :
+    1 2 add! "%ld" @println
+    "Hello World!" puts!
+    0 return
+end

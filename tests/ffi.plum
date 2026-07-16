@@ -1,0 +1,61 @@
+# -- WORD (16 bits/2 bytes) DWORD (32 bits/4 bytes) QWORD (64 bits/8 bytes)
+
+import "std/io"
+import "std/lib"
+
+static input byte 256
+
+static file ptr 1
+static size qword 1
+static buffer ptr 1
+
+proc main ( qword ptr ) :
+    . "%s" $1 @println
+
+    drop
+
+    .input "%255s" $1 scanf!
+
+    .input "rb" over fopen!
+    if dup @NULL ==
+    do
+        pick 1 "Failed to open file %s" $1 @println
+        1 exit
+    else end
+
+    swap "Opened file: %s" $1 @println
+    
+    dup @SEEK_END 0 rot fseek!
+
+    dup ftell!      
+    .size over =
+    drop
+    
+    dup rewind!
+    .file over =    # Spara fp i .file
+    
+    .size . 1 + alloc
+    if dup @NULL ==
+    do
+        "Failed to allocate memory for file content!" puts!
+        1 exit
+    else end
+
+    .buffer over =
+    drop            
+    
+    .file .
+    .size .
+    1
+    .buffer .
+    
+    fread!
+    drop
+
+    .file . fclose!
+
+    .buffer . .size . 0 []=
+    
+    .buffer . "%s" $1 @println 
+    0 exit
+end

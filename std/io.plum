@@ -1,3 +1,23 @@
-macro print intrinsic__printf
-macro println intrinsic__printf_ln
-macro stdin intrinsic__scanf
+extern proc putchar ( byte ) ;
+extern proc puts    ( ptr ) ;
+extern proc printf  ( ptr ... ) ;
+
+extern proc scanf   ( ptr ... ) ;
+
+extern proc perror  ( ptr ) ;
+extern proc fopen   ( qword qword ) ptr ;
+extern proc fseek   ( ptr qword qword ) ;
+extern proc ftell   ( ptr ) qword ;
+extern proc rewind  ( ptr ) ;
+extern proc fclose  ( ptr ) ;
+# extern proc fputs   ( ptr qword ) ;
+extern proc fread   ( ptr qword qword ptr ) ;
+
+macro print printf!
+macro println printf! 10 putchar!
+
+macro SEEK_SET  0
+macro SEEK_CUR  1       # set file offset to current plus offset
+macro SEEK_END  2       # set file offset to EOF plus offset
+macro SEEK_HOLE 3       # set file offset to the start of the next hole greater than or equal to the supplied offset
+macro SEEK_DATA 4       # set file offset to the start of the next non-hole file region greater than or equal to the supplied offset
