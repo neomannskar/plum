@@ -1,6 +1,6 @@
 import "std/io"
 
-static buffer 128 # -> .zerofill __DATA,__bss,_buffer,1024,3
+static buffer qword 128 # -- -> .zerofill __DATA,__bss,_buffer,1024,3
 
 proc main :
     .buffer # Push address of 'buffer'

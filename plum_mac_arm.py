@@ -10,33 +10,68 @@ def is_integer(token):
         return True
     except ValueError:
         return False
+    
+def is_float(token):
+    try:
+        float(token)
+        return True
+    except ValueError:
+        return False
 
 class Generator:
-    tokens: list
-    str_lits: list
-    tok_len: int = 0
-    tok_iter: int = 0
-    procedures: list = []
-    procedure_args: dict = {}
-    procedure: list = []
-    procedure: str = ""
+    tokens: list                    # List of tokens
+    str_lits: list                  # String literals extracted earlier
+    tok_len: int = 0                # Length of 'tokens'
+    tok_iter: int = 0               # Iterator through 'tokens'
+
+    branches: dict = {}             # Keeps track of branches and their stack depth
+    stack_depth: int = 0            # Temporary/Current scope stack depth
+
+    procedures: list = []           # List of procedure names
     
-    if_counter: int = 0
-    while_counter: int = 0
-    control_stack: list = []
+    current_procedure: str = ""     # Current procedure name
+    callee_arg_count: int = 0       # Callee arg count for variadics
+    procedure_params: dict = {}     # List of procedures' parameters
+    procedure_return: dict = {}     # List of procedures' return values
 
-    string_pool: dict = {}
+    procedure: str = ""             # Current procedure code
+    
+    if_counter: int = 0             # If counter for labels
+    while_counter: int = 0          # While counter for labels
+    control_stack: list = []        # Control stack for branches (if, while, proc)
+    
+    string_pool: dict = {}          # Holds all string literals
 
-    bss_section: list = []
-    statics: list = []
+    bss_section: list = []          # BSS Data section
+    statics: dict = {}              # Static variables [name] = type
 
-    program: str = ""
+    program: str = ""               # Holds compiled program when done
 
     def __init__(self, tokens, str_literals):
         self.tok_len = len(tokens)
         self.tokens = tokens
         self.str_lits = str_literals
         pass
+
+    def size_of(type) -> int:
+        match type:
+            case "qword":
+                return 8
+            case "dword":
+                return 4
+            case "word":
+                return 2
+            case "byte":
+                return 1
+            case "ptr":
+                return 8
+            case "double":
+                return 8
+            case "float":
+                return 8
+            case _:
+                print(f"Unknown type for static: {type}")
+                sys.exit(1)
 
     def advance(self):
         self.tok_iter += 1
@@ -69,6 +104,7 @@ class Generator:
         self.procedure += f"    {op:<{width}}{operand}\n"
 
     def if_branch(self):
+        # self.branches[self.if_counter] = self.stack_depth
         self.procedure += f".IF_BRANCH_{self.if_counter}:"
         self.control_stack.append(f"I{self.if_counter}")
         self.if_counter += 1
@@ -114,7 +150,8 @@ class Generator:
             case _:
                 print(f"Implementation Error: Unknown value in control_stack: {self.control_stack[-1]}")
                 sys.exit(1)
-        #stack_depth -= 1
+        
+        self.stack_depth -= 1
 
     def end(self):
         """
@@ -144,6 +181,13 @@ class Generator:
     def push(self, reg: str):
         self.inst("str", f"{reg}, [sp, #-16]!")
 
+    def expect_stack(self, count: int):
+        if self.stack_depth < count:
+            print(f"Compilation Error: '{self.current()}' expects at least {count} elements on the stack")
+            sys.exit(1)
+        else:
+            print(self.stack_depth)
+
     def gen_asm(self):
         prev = ""
         curr = self.current()
@@ -156,36 +200,50 @@ class Generator:
             
             match curr:
                 case "intrinsic__printf":
-                    # Handle type_stack
+                    # special case
                     self.pop("x0")
                     self.inst("bl", "_printf")
                     self.inst("add", "sp, sp, #16")
-                    # stack_depth -= 2
+
+                    self.stack_depth -= 2
                 case "intrinsic__printf_ln":
+                    # special case
                     self.pop("x0")
                     self.inst("bl", "_printf")
                     self.inst("add", "sp, sp, #16")
                     self.inst("mov", "x0, #10")
                     self.inst("bl", "_putchar")
-                    # stack_depth -= 2
+
+                    self.stack_depth -= 2
                 case "intrinsic__scanf":
+                    # special case
                     self.pop("x0")
                     self.inst("bl", "_scanf")
                     self.inst("add", "sp, sp, #16")
-                    # stack_depth += 1
+
+                    self.stack_depth -= 2
                 case "dup":
+                    self.expect_stack(1)
+
                     self.peek("x0")
                     self.push("x0")
-                    # stack_depth += 1
+
+                    self.stack_depth += 1
                 case "drop":
+                    self.expect_stack(1)
+
                     self.inst("add", "sp, sp, #16")
-                    # stack_depth -= 1
+
+                    self.stack_depth -= 1
                 case "swap":
+                    self.expect_stack(2)
+
                     self.peek("x0")
                     self.inst("ldr", "x1, [sp, #16]")
                     self.inst("str", "x1, [sp]")
                     self.inst("str", "x0, [sp, #16]")
                 case "rot":
+                    self.expect_stack(3)
                     self.comment("[a, b, c] --> [b, c, a]")
                     self.peek("x0")
                     self.inst("ldr", "x1, [sp, #16]")
@@ -193,52 +251,79 @@ class Generator:
                     self.inst("str", "x1, [sp, #32]")
                     self.inst("str", "x0, [sp, #16]")
                     self.inst("str", "x2, [sp]")
+
                 case "over":
+                    self.expect_stack(2)
+
                     self.inst("ldr", "x0, [sp, #16]")
                     self.push("x0")
-                    # stack_depth += 1
+
+                    self.stack_depth += 1
                 case "pick":
-                    self.comment("[a, b, c][1] --> [a, b, c, b]")
+                    self.expect_stack(1)
+
                     self.pop("x0")
                     self.inst("lsl", "x1, x0, #4")
                     self.inst("ldr", "x2, [sp, x1]")
                     self.push("x2")
-                    # stack_depth += 1
+
                 case "alloc":
+                    self.expect_stack(1)
+
                     self.pop("x0")
                     self.inst("lsl", "x0, x0, #3")
                     self.inst("bl", "_malloc")
                     self.push("x0")
+
                 case "free":
+                    self.expect_stack(1)
+
                     self.pop("x0")
                     self.inst("bl", "_free")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case "exit":
+                    self.expect_stack(1)
+
                     self.pop("x0")
                     self.inst("bl", "_exit")
-                case '.':
+
+                    self.stack_depth -= 1
+                case ".":
+                    self.expect_stack(1)
+
                     self.inst("mov", "x0, #0")
                     self.pop("x1")
                     self.inst("ldr", "x0, [x1, x0, lsl #3]")
                     self.push("x0")
+
                 case "[]":
+                    self.expect_stack(2)
+
                     self.pop("x0")
                     self.pop("x1")
                     self.inst("ldr", "x0, [x1, x0, lsl #3]")
                     self.push("x0")
-                    # stack_depth -= 1
+
+                    self.stack_depth -= 1
                 case "=":
+                    self.expect_stack(2)
+
                     self.pop("x0")
                     self.inst("mov", "x1, #0")
                     self.pop("x2")
                     self.inst("str", "x0, [x2, x1, lsl #3]")
-                    # stack_depth -= 3
+
+                    self.stack_depth -= 2
                 case "[]=":
+                    self.expect_stack(3)
+
                     self.pop("x0")
                     self.pop("x1")
                     self.pop("x2")
                     self.inst("str", "x0, [x2, x1, lsl #3]")
-                    # stack_depth -= 3
+
+                    self.stack_depth -= 3
                 case "if":
                     self.if_branch()
                 case "while":
@@ -248,17 +333,26 @@ class Generator:
                 case "else":
                     self.else_branch()
                 case "return":
-                    self.pop("x0")
-                    self.inst("ldp", "x29, x30, [sp], #16")
-                    self.inst("ret", "")
+                    type = self.procedure_return[self.current_procedure]
+                    
+                    if (type == "float" or type == "double"):
+                        self.pop("v0")
+                        self.inst("ldp", "x29, x30, [sp], #16")
+                        self.inst("ret", "")
+                    else:
+                        self.pop("x0")
+                        self.inst("ldp", "x29, x30, [sp], #16")
+                        self.inst("ret", "")
+
                 case "end":
                     if len(self.control_stack) > 0:
                         self.end()
                     else:
-                        # self.pop("x0")
-                        # self.inst("mov", "x0, #0")
-                        # self.inst("ldp", "x29, x30, [sp], #16")
-                        # self.inst("ret", "")
+                        type = self.procedure_return[self.current_procedure]
+                        if type == 0 and prev != "return":
+                            self.inst("mov", "x0, #0")
+                            self.inst("ldp", "x29, x30, [sp], #16")
+                            self.inst("ret", "")
                         return
                 case "++":
                     self.pop("x0")
@@ -269,111 +363,160 @@ class Generator:
                     self.inst("sub", "x0, x0, #1")
                     self.push("x0")
                 case "+":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("add", "x0, x0, x1")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case "-":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("sub", "x0, x0, x1")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case "*":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("mul", "x0, x0, x1")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case "/":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("sdiv", "x0, x0, x1")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case '%':
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("sdiv", "x2, x0, x1")
                     self.inst("msub", "x0, x2, x1, x0")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case "&":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("and", "x0, x0, x1")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case "|":
+                    self.expect_stack(2)
+                    
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("orr", "x0, x0, x1")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case "^":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("eor", "x0, x0, x1")
                     self.push("x0")
+
+                    self.stack_depth -= 1
                 case "~":
                     self.pop("x0")
                     self.inst("mvn", "x0, x0")
                     self.push("x0")
                 case "<<":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("lsl", "x0, x0, x1")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case ">>":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("asr", "x0, x0, x1")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case "<":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("cmp", "x0, x1")
                     self.inst("cset", "x0, lt")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case ">":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("cmp", "x0, x1")
                     self.inst("cset", "x0, gt")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case "==":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("cmp", "x0, x1")
                     self.inst("cset", "x0, eq")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case "!=":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("cmp", "x0, x1")
                     self.inst("cset", "x0, ne")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case "<=":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("cmp", "x0, x1")
                     self.inst("cset", "x0, le")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case ">=":
+                    self.expect_stack(2)
+
                     self.pop("x1")
                     self.pop("x0")
                     self.inst("cmp", "x0, x1")
                     self.inst("cset", "x0, ge")
                     self.push("x0")
-                    # stack_depth -= 1
+                    
+                    self.stack_depth -= 1
                 case _:
                     if curr[0] == '"':
                         string_lit = curr
@@ -384,26 +527,85 @@ class Generator:
                         self.inst("adrp", f"x0, l_.STR.{str_id}@PAGE")
                         self.inst("add", f"x0, x0, l_.STR.{str_id}@PAGEOFF")
                         self.push("x0")
-                        # stack_depth += 1
+
+                        self.stack_depth += 1
                     elif curr[0] == ".":
                         var = '_' + curr[1:]
                         self.comment("Push variable address")
                         self.inst("adrp", f"x0, {var}@PAGE")
                         self.inst("add", f"x0, x0, {var}@PAGEOFF")
                         self.push("x0")
-                        # stack_depth += 1
+
+                        self.stack_depth += 1
                     elif curr[-1] == '!':
                         proc_callee = '_' + curr[:-1]
                         self.comment("Load arguments")
                         
                         try:
-                            args = self.procedure_args[proc_callee]
+                            params = self.procedure_params[proc_callee]
                         except KeyError:
                             print(f"Compilation Error: Undefined procedure: {proc_callee[1:]}")
                             sys.exit(1)
                         
-                        for i in range(0, args):
-                            self.inst("ldr", f"x{i}, [sp], #16") # pop from stack
+                        i = 0
+                        is_variadic = False
+                        if "..." in params:
+                            is_variadic = True
+                            if self.callee_arg_count > 0:
+                                self.expect_stack(self.callee_arg_count)
+                                self.stack_depth -= (self.callee_arg_count)
+                            else:
+                                print("Compilation Error: variadic variable count not set with '$' operator before call to variadic procedure")
+                                sys.exit(1)
+
+                        for param in params:
+                            if param == "...":
+                                if len(params) < 2 and params[-1] != "...":
+                                    print("Compilation Error: Variadics must be at end of parameter list and can't be the only parameter!")
+                                    sys.exit(1)
+                                break
+                            else:
+                                if param == "float" or param == "double":
+                                    self.inst("ldr", f"v{i}, [sp], #16")
+                                else:
+                                    match param:
+                                        case "byte":    # 8-bit
+                                            pass
+                                        case "word":    # 16-bit
+                                            pass
+                                        case "dword":   # 32-bit
+                                            pass
+                                        case "qword":   # 64-bit
+                                            pass
+                                        case "ptr":     # 64-bit
+                                            pass
+                                        case "float":   # 32-bit
+                                            pass
+                                        case "double":  # 64-bit
+                                            pass
+                                        case _:
+                                            print(f"Unknown parameter type: {param}")
+                                            sys.exit(1)
+
+                                    self.pop(f"x{i}")
+
+                                i += 1
+
+                                self.stack_depth -= 1
+                        
+                        if is_variadic and self.callee_arg_count > 0:
+                            N = self.callee_arg_count
+                            aligned_size = ((N + 1) // 2) * 16
+                            
+                            self.comment("Repack variadic arguments for macOS ABI (8-byte slots)")
+                            self.inst("sub", f"sp, sp, #{aligned_size}")
+                            
+                            for j in range(N):
+                                old_offset = aligned_size + (j * 16)
+                                new_offset = j * 8
+                                
+                                self.inst("ldr", f"x9, [sp, #{old_offset}]")
+                                self.inst("str", f"x9, [sp, #{new_offset}]")
 
                         if not proc_callee in self.procedures:
                             print(f"Compilation Error: No known procedure: {proc_callee[1:]}")
@@ -411,17 +613,47 @@ class Generator:
                         
                         self.comment("Call")
                         self.inst("bl", f"{proc_callee}")
+                        if is_variadic:
+                            if self.callee_arg_count > 0:
+                                aligned_size = ((self.callee_arg_count + 1) // 2) * 16
+                                total_cleanup = aligned_size + (self.callee_arg_count * 16)
+                                
+                                self.inst("add", f"sp, sp, #{total_cleanup}")
+                                self.callee_arg_count = 0
+                            else:
+                                print(f"Compilation Error: variadic variable count not set with '$' operator before call to variadic procedure: {self.callee_arg_count}")
+                                sys.exit(1)
                         
-                        # if return_val:
-                        self.push("x0")
+                        type = self.procedure_return[proc_callee]
+                        if type == 0:
+                            pass
+                        elif type == "float" or type == "double":
+                            self.push("v0")
+                            self.stack_depth += 1
+                        else:
+                            self.push("x0")
+                            self.stack_depth += 1
+                        
+                    elif curr[0] == '$':
+                        count = curr[1:]
+                        if not is_integer(count):
+                            print(f"Compilation Error: {curr} is not a valid variadic argument count")
+                            sys.exit(1)
+                        else:
+                            self.callee_arg_count = int(count)
+                            print(self.callee_arg_count)
                     else:
-                        if not is_integer(curr):
-                            print(f"Compilation Error: Unexpected token: {curr}")
+                        if is_integer(curr):
+                            self.inst("mov", f"x0, #{curr}")
+                            self.push("x0")
+                        elif is_float(curr):
+                            self.inst("movf", f"v0, #{curr}")
+                            self.push("v0")
+                        else:
+                            print(f"Compilation Error: Token '{curr}' is not an integer or a float value")
                             sys.exit(1)
                         
-                        self.inst("mov", f"x0, #{curr}")
-                        self.push("x0")
-                        # stack_depth += 1
+                        self.stack_depth += 1
 
             self.advance()
 
@@ -445,11 +677,14 @@ class Generator:
                             print(f"Compilation Error: Static variable {name[1:]} already defined")
                             sys.exit(1)
                         
-                        self.statics.append(name)
+                        self.advance()
+
+                        self.statics[name] = self.current()
+
                         self.advance()
 
                         if is_integer(self.current()):
-                            self.bss_section.append(f".zerofill __DATA,__bss,{name},{int(self.current()) * 8},3")
+                            self.bss_section.append(f".zerofill __DATA,__bss,{name},{int(self.current()) * Generator.size_of(self.statics[name])},3")
                         else:
                             width = " " * len(name[1:])
                             print(f"Compilation Error: Unexpected token in static variable defintion: '{self.current()}'\n\n\tstatic {name[1:]}\n\t~      {width} ^\n\nExpected number of elements")
@@ -458,6 +693,55 @@ class Generator:
                     else:
                         print("Error: Missing static variable name:\n\tstatic\n\t~      ^")
                         sys.exit(1)
+                
+                case "extern":
+                    proc = self.next()
+                    if proc != "proc":
+                        print(f"Compilation Error: Expected 'proc' after keyword 'extern' got '{proc}'")
+                        sys.exit(1)
+
+                    name = self.next()
+                    if name:
+                        name = f"_{name}"
+                        
+                        if name in self.procedures:
+                            print(f"Compilation Error: extern proc or proc {name[1:]} already defined as {self.procedure_params[name]}")
+                            sys.exit(1)
+                    
+                        self.procedures.append(name)
+
+                    
+                        curr = self.next()
+                        if curr != "(":
+                            print(f"Compilation Error: extern proc definition expects parameter list")
+                            sys.exit(1)
+
+                        curr = self.next()
+
+                        params: list = []
+
+                        while curr != ")":
+                            params.append(curr)
+                            curr = self.next()
+
+                        if len(params) > 7:
+                            print("Maximum number of procedure arguments reached!\n\tProcedures can only take 7 arguments in Plum v1.0")
+                            sys.exit(1)
+
+                        self.procedure_params[name] = params
+
+                        curr = self.next()
+
+                        if curr == ';':
+                            self.procedure_return[name] = 0
+                            print(params)
+                        else:
+                            self.procedure_return[name] = curr
+                            print(params, curr)
+                            curr = self.next()
+                            if curr != ';':
+                                print(f"Compilation Error: Expected ';' at end of extern proc definition")
+                                sys.exit(1)
 
                 case "proc":
                     name = self.next()
@@ -465,38 +749,54 @@ class Generator:
                         name = f"_{name}"
                         
                         if name in self.procedures:
-                            print(f"Compilation Error: Procedure {name[1:]} already defined")
+                            print(f"Compilation Error: extern proc or proc {name[1:]} already defined")
                             sys.exit(1)
                         
                         self.procedures.append(name)
+                        self.current_procedure = name
 
                         self.tag(f".globl  {name}")
                         self.tag(".p2align    2")
                         self.symbol(name)
                         self.inst("stp", "x29, x30, [sp, #-16]!")
                         
-                        self.advance()
-                        if self.current() == ":":
-                            self.procedure_args[name] = 0
-                        elif is_integer(self.current()):
-                            i = int(self.current())
-                            if i > 7:
-                                print("Maximum number of procedure arguments reached!\n\tProcedures can only take 7 arguments in Plum v1.0")
-                                sys.exit(1)
-                            
-                            self.procedure_args[name] = i
-                            self.advance()
-                            if self.current() != ":":
-                                width = " " * len(name[1:])
-                                print(f"Compilation Error: Unexpected token in procedure defintion: '{self.current()}'\n\n\tproc {name[1:]} {i}\n\t~    {width}  ^\n\nExpected number of arguments or an opening ':'")
-                                sys.exit(1)
-                        else:
-                            width = " " * len(name[1:])
-                            print(f"Compilation Error: Unexpected token in procedure defintion: '{self.current()}'\n\n\tproc {name[1:]}\n\t~    {width} ^\n\nExpected number of arguments or an opening ':'")
+                        curr = self.next()
+
+                        if curr != "(":
+                            print(f"Compilation Error: proc definition expects parameter list")
                             sys.exit(1)
+
+                        curr = self.next()
+
+                        params: list = []
+
+                        while curr != ")":
+                            params.append(curr)
+                            curr = self.next()
                         
-                        for i in range(0, self.procedure_args[name]):
+                        self.advance()
+
+                        if len(params) > 7:
+                            print("Maximum number of procedure arguments reached!\n\tProcedures can only take 7 arguments in Plum v1.0")
+                            sys.exit(1)
+
+                        print(params)
+
+                        self.procedure_params[name] = params
+
+                        if self.current() == ":":
+                            self.procedure_return[name] = 0
+                        else:
+                            self.procedure_return[name] = curr
+
+                            curr = self.next()
+                            if curr != ':':
+                                print(f"Compilation Error: Expected ':' at end of proc header definition")
+                                sys.exit(1)
+                        
+                        for i in range(0, len(self.procedure_params[name])):
                             self.push(f"x{i}")
+                            self.stack_depth += 1
                         
                         self.advance()
 
