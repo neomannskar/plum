@@ -1,10 +1,11 @@
 import "std/io"
+import "std/lib"
 
 proc main :
     "Rule 110 Generation" "%s" @println
 
     16 alloc # [ scratch ]
-    if dup 0 == do "Alloc failed" "%s" @println 1 exit else end
+    if dup @NULL == do "Alloc failed" "%s" @println 1 exit else end
     64 alloc # [ scratch, curr ]
     64 alloc # [ scratch, curr, next ]
     65 alloc # [ scratch, curr, next, display ]

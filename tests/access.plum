@@ -3,14 +3,13 @@ import "std/lib"
 
 proc main :
     32 alloc
-
-    if dup @NULL ==
-    do
+    if dup @NULL == do
         "Failed to allocate memory" "%s" @println
+        1 return
     else end
 
-    "Allocation succeeded!" "%s" @println
-
-    free
+    dup 69 =
+    . "%d" @println
+    
     0 return
 end
