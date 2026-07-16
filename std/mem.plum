@@ -1,4 +1,5 @@
 import "std/io"
+import "std/lib"
 
 macro SMART_ALLOC_MAX_PTR_COUNT 128
 
@@ -9,7 +10,7 @@ proc smart_alloc 1 :
    .smart_alloc_list_ptr 0 [] if 0 ==
    do
       @SMART_ALLOC_MAX_PTR_COUNT alloc
-      if dup 0 ==
+      if dup @NULL ==
       do
          "Failed to initialize smart_alloc!" "%s" @println
       else end

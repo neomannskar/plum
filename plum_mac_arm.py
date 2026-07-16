@@ -216,12 +216,23 @@ class Generator:
                 case "exit":
                     self.pop("x0")
                     self.inst("bl", "_exit")
+                case '.':
+                    self.inst("mov", "x0, #0")
+                    self.pop("x1")
+                    self.inst("ldr", "x0, [x1, x0, lsl #3]")
+                    self.push("x0")
                 case "[]":
                     self.pop("x0")
                     self.pop("x1")
                     self.inst("ldr", "x0, [x1, x0, lsl #3]")
                     self.push("x0")
                     # stack_depth -= 1
+                case "=":
+                    self.pop("x0")
+                    self.inst("mov", "x1, #0")
+                    self.pop("x2")
+                    self.inst("str", "x0, [x2, x1, lsl #3]")
+                    # stack_depth -= 3
                 case "[]=":
                     self.pop("x0")
                     self.pop("x1")
