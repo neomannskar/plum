@@ -1,0 +1,14 @@
+import "import/raylib"
+
+proc main ( ) :
+    "raylib in plum!" 450 800 InitWindow!
+    
+    0 while dup WindowShouldClose! ==
+    do
+        BeginDrawing!
+        # -- Draw stuff here
+        EndDrawing!
+    end drop
+
+    CloseWindow!
+end

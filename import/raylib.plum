@@ -1,0 +1,9 @@
+# -- BUILD WITH -L/opt/homebrew/lib -lraylib -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
+
+extern proc InitWindow ( dword dword ptr ) ;
+extern proc WindowShouldClose (  ) dword ;
+
+extern proc BeginDrawing ( ) ;
+extern proc EndDrawing ( ) ;
+
+extern proc CloseWindow ( ) ;
