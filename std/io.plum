@@ -2,8 +2,9 @@ extern proc putchar ( byte ) ;
 extern proc puts    ( ptr ) ;
 extern proc printf  ( ptr ... ) ;
 extern proc fprintf ( ptr ptr ... ) ;
+extern proc sprintf ( ptr ptr ... ) ;
 
-extern proc scanf   ( ptr ... ) ;
+extern proc scanf   ( ptr ptr ... ) ;
 
 extern proc perror  ( ptr ) ;
 extern proc fopen   ( qword qword ) ptr ;

@@ -1,0 +1,149 @@
+import "std/io"
+import "import/raylib"
+
+macro WINDOW_WIDTH  800
+macro WINDOW_HEIGHT 600
+
+macro SCALE_FACTOR 100
+
+macro BALL_SIZE 10
+
+static ball_x       dword 1
+static ball_y       dword 1
+static ball_speed_x dword 1
+static ball_speed_y dword 1
+
+macro KEY_A 65
+macro KEY_D 68
+
+macro PLAT_HEIGHT 10
+macro PLAT_WIDTH  150
+macro PLAT_SPEED  1000
+
+static plat_x dword 1
+static plat_y dword 1
+
+static bounce_count qword 1
+static bounce_count_str ptr 1
+
+macro MAX_BOUNCE_SPEED    1000
+
+proc bounce (  ) :
+
+    .ball_x . 0 <=
+    .ball_speed_x . 0 < &
+
+    .ball_x . @BALL_SIZE + @WINDOW_WIDTH >=
+    .ball_speed_x . 0 > &
+
+    |
+
+    if 1 == do
+        .ball_speed_x .ball_speed_x . neg =
+    else end
+
+    .ball_y . 0 <=
+    .ball_speed_y . 0 < &
+
+    if 1 == do
+        .ball_speed_y .ball_speed_y . neg =
+    else end
+    
+    .ball_x . @BALL_SIZE + .plat_x . >=
+    .ball_x . @BALL_SIZE - .plat_x . @PLAT_WIDTH + <=
+    .ball_y . @BALL_SIZE + .plat_y . >=
+    .ball_y . @BALL_SIZE - .plat_y . @PLAT_HEIGHT + <=
+
+    & & & .ball_speed_y . 0 > &
+
+    if 1 == do
+        .ball_speed_y .ball_speed_y . neg =
+        
+        .plat_x . @PLAT_WIDTH 2 / +
+
+        .ball_x . swap -
+
+        @MAX_BOUNCE_SPEED *
+        
+        @PLAT_WIDTH 2 / /
+
+        .ball_speed_x swap =
+
+        .bounce_count .bounce_count . ++ =
+    else end
+
+    .ball_y . if @WINDOW_HEIGHT >= do
+        "Game Over!" puts!
+        .bounce_count . "Count: %lld" $1 @println
+        0 exit
+    else end
+end
+
+proc main ( ) :
+    32 alloc if dup 0 == do
+        "Failed to allocate memory for count buffer!" puts!
+        1 exit
+    else end
+    
+    .bounce_count_str swap =
+
+    .bounce_count 0 =
+
+    .ball_x 0 =
+    .ball_y 0 =
+    .ball_speed_x 600 =
+    .ball_speed_y 600 =
+
+    .plat_x 75 =
+    .plat_y 590 =
+
+    "Raylib in Plum!" @WINDOW_HEIGHT @WINDOW_WIDTH InitWindow!
+    
+    60 SetTargetFPS!
+
+    # -- Main Game Loop
+
+    0 while dup WindowShouldClose! ==
+    do
+        BeginDrawing!
+            @VIOLET ClearBackground!
+
+            10 GetScreenWidth! 80 - DrawFPS!
+            
+            .bounce_count . "%lld" .bounce_count_str . $1 sprintf!
+
+            @WHITE 40 280            250       "Hello from Plum!"           DrawText!
+            @WHITE 20 5              5         "Move platform with A and D" DrawText!
+            @BLACK 20 .plat_y . 40 - .plat_x . @PLAT_WIDTH 2 / + .bounce_count_str .          DrawText!
+
+            @BLACK @PLAT_HEIGHT @PLAT_WIDTH .plat_y . .plat_x . DrawRectangle!
+            .plat_y @WINDOW_HEIGHT @PLAT_HEIGHT - =
+
+            .plat_x . 0 >
+            @KEY_A IsKeyDown!
+            &
+            if 1 ==
+            do
+                .plat_x .plat_x . @PLAT_SPEED @SCALE_FACTOR / - =
+            else end
+
+            .plat_x . @PLAT_WIDTH + @WINDOW_WIDTH <
+            @KEY_D IsKeyDown!
+            &
+            if 1 ==
+            do
+                .plat_x .plat_x . @PLAT_SPEED @SCALE_FACTOR / + =
+            else end
+            
+            @BLACK @BALL_SIZE @BALL_SIZE .ball_y . .ball_x . DrawRectangle!
+            
+            .ball_y .ball_y . .ball_speed_y . @SCALE_FACTOR / + =
+            .ball_x .ball_x . .ball_speed_x . @SCALE_FACTOR / + =
+
+            bounce!
+        
+        EndDrawing!
+    end drop
+
+    CloseWindow!
+end

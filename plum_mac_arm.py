@@ -433,8 +433,16 @@ class Generator:
 
                     self.current_stack_depth -= 1
                 case "~":
+                    self.expect_stack(1)
+
                     self.pop("x0")
                     self.inst("mvn", "x0, x0")
+                    self.push("x0")
+                case "neg":
+                    self.expect_stack(1)
+
+                    self.pop("x0")
+                    self.inst("neg", "x0, x0")
                     self.push("x0")
                 case "<<":
                     self.expect_stack(2)
@@ -523,15 +531,35 @@ class Generator:
                                 self.hijack(curr[1:-1]);
                             curr = self.next()
 
+                        curr = self.next()
+                        if curr != ";":
+                            self.current_stack_depth += 1
+                            continue
 
                     elif curr[0] == '"':
                         if len(curr) > 2:
                             self.hijack(curr[1:-1]);
+
+                        curr = self.next()
+                        if curr != ";":
+                            self.current_stack_depth += 1
+                            continue
                     else:
                         print("Compilation Error: Expected String literal or block '{ ... }' after in compiler hijack")
                         sys.exit(1)
                 case _:
-                    if curr[0] == '"':
+                    if curr[0] == '\'':
+                        try:
+                            c = curr[1:-1]
+                            val = ord(c)
+                            self.inst("mov", f"x0, #{val}")
+                            self.push("x0")
+                        except:
+                            print(f"Compilation Error: Char literal is not a char literal: {curr}")
+                            sys.exit(1)
+
+                        self.current_stack_depth += 1
+                    elif curr[0] == '"':
                         string_lit = curr
                         if string_lit not in self.string_pool:
                             self.string_pool[string_lit] = len(self.string_pool)
@@ -602,21 +630,22 @@ class Generator:
                                         self.inst("ldr", f"v{i}, [sp], #16")
                                     case "[byte4]":
                                         self.expect_stack(4)
-                                        
-                                        self.pop("x0")   # a
-                                        self.pop("x1")   # b
-                                        self.pop("x2")   # g
-                                        self.pop("x3")   # r
 
-                                        self.inst("lsl", "x2, x2, #8")     # g << 8
-                                        self.inst("lsl", "x1, x1, #16")    # b << 16
-                                        self.inst("lsl", "x0, x0, #24")    # a << 24
+                                        self.pop("x9")   # a
+                                        self.pop("x10")  # b
+                                        self.pop("x11")  # g
+                                        self.pop("x12")  # r
 
-                                        self.inst("orr", "x3, x3, x2")
-                                        self.inst("orr", "x3, x3, x1")
-                                        self.inst("orr", "x3, x3, x0")
+                                        # Pack into x12
+                                        self.inst("lsl", "x11, x11, #8")     # g << 8
+                                        self.inst("lsl", "x10, x10, #16")    # b << 16
+                                        self.inst("lsl", "x9, x9, #24")      # a << 24
 
-                                        self.inst("mov", f"w{i}, w3")
+                                        self.inst("orr", "x12, x12, x11")
+                                        self.inst("orr", "x12, x12, x10")
+                                        self.inst("orr", "x12, x12, x9")
+
+                                        self.inst("mov", f"w{i}, w12")
 
                                         self.current_stack_depth -= 3
                                     case _:
