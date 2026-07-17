@@ -24,8 +24,7 @@ class Generator:
     tok_len: int = 0                # Length of 'tokens'
     tok_iter: int = 0               # Iterator through 'tokens'
 
-    branches: dict = {}             # Keeps track of branches and their stack depth
-    stack_depth: int = 0            # Temporary/Current scope stack depth
+    current_stack_depth: int = 0    # Temporary/Current scope stack depth
 
     procedures: list = []           # List of procedure names
     
@@ -38,7 +37,7 @@ class Generator:
     
     if_counter: int = 0             # If counter for labels
     while_counter: int = 0          # While counter for labels
-    control_stack: list = []        # Control stack for branches (if, while, proc)
+    control_stack: list = []        # Control stack for branches
     
     string_pool: dict = {}          # Holds all string literals
 
@@ -107,72 +106,68 @@ class Generator:
         self.procedure += f"    {code}\n"
 
     def if_branch(self):
-        # self.branches[self.if_counter] = self.stack_depth
         self.procedure += f".IF_BRANCH_{self.if_counter}:"
-        self.control_stack.append(f"I{self.if_counter}")
+        self.control_stack.append(("I", self.if_counter, self.current_stack_depth))
         self.if_counter += 1
-        #initial_depth = stack_depth
     
     def else_branch(self):
-        """
-        if stack_depth > initial_depth:
-            program += "; Auto-drop\n"
-            program += f"    add     sp, sp, #{(stack_depth - initial_depth) * 16}\n"
-            stack_depth = initial_depth
+        if not self.control_stack or self.control_stack[-1][0] != 'I':
+            print(f"Compilation Error: Unexpected 'else', missing associated 'if'")
+            sys.exit(1)
         
-        if control_stack[-1][0] != 'I':
-                print(f"Compilation Error: Unexpected 'else', missing associated 'if'\n\tFound: {control_stack[-1]}")
-                sys.exit(1)
-        """
+        block_type, block_id, saved_depth = self.control_stack[-1]
 
-        _if = self.control_stack[-1][-1]
-        self.inst("b", f".END_BRANCH_{_if}")
-        self.procedure += f".ELSE_BRANCH_{_if}:\n"
+        if self.current_stack_depth > saved_depth:
+            self.comment("Else: Auto-dropping")
+            self.inst("add", f"sp, sp, #{(self.current_stack_depth - saved_depth) * 16}")
+        
+        self.current_stack_depth = saved_depth
+        
+        self.inst("b", f".END_BRANCH_{block_id}")
+        self.procedure += f".ELSE_BRANCH_{block_id}:\n"
         self.comment("Else-branch:")
-        #stack_depth = initial_depth
 
     def while_branch(self):
         self.procedure += f".WHILE_START_{self.while_counter}:"
-        self.control_stack.append(f"W{self.while_counter}")
+        self.control_stack.append(("W", self.while_counter, self.current_stack_depth))
         self.while_counter += 1
-        #initial_depth = stack_depth
     
     def do(self):
-        match self.control_stack[-1][0]:
+        block_type, block_id, saved_depth = self.control_stack.pop()
+
+        match block_type:
             case 'I':
-                _if = self.control_stack[-1][-1]
                 self.pop("x0")
                 self.inst("cmp", "x0, #0")
-                self.inst("b.eq", f".ELSE_BRANCH_{_if}")
+                self.inst("b.eq", f".ELSE_BRANCH_{block_id}")
                 self.comment("Then-branch:")
             case 'W':
-                _while = self.control_stack[-1][-1]
                 self.pop("x0")
                 self.inst("cmp", "x0, #0")
-                self.inst("b.eq", f".WHILE_END_{_while}")
+                self.inst("b.eq", f".WHILE_END_{block_id}")
             case _:
-                print(f"Implementation Error: Unknown value in control_stack: {self.control_stack[-1]}")
+                print(f"Implementation Error: Unknown value in control_stack")
                 sys.exit(1)
         
-        self.stack_depth -= 1
+        self.current_stack_depth -= 1
+        self.control_stack.append((block_type, block_id, self.current_stack_depth))
 
     def end(self):
-        """
-        if stack_depth > initial_depth:
-            program += "; Auto-drop\n"
-            program += f"    add     sp, sp, #{(stack_depth - initial_depth) * 16}\n"
-            stack_depth = initial_depth
-        """
-        id_val = self.control_stack.pop()
-        id = id_val[-1]
-        match id_val[0]:
+        block_type, block_id, saved_depth = self.control_stack.pop()
+
+        if self.current_stack_depth > saved_depth:
+            self.comment("End: Auto-dropping")
+            self.inst("add", f"sp, sp, #{(self.current_stack_depth - saved_depth) * 16}")
+            self.current_stack_depth = saved_depth
+        
+        match block_type:
             case 'I':
-                self.procedure += f".END_BRANCH_{id}:\n"
+                self.procedure += f".END_BRANCH_{block_id}:\n"
             case 'W':
-                self.inst("b", f".WHILE_START_{id}")
-                self.procedure += f".WHILE_END_{id}:\n"
+                self.inst("b", f".WHILE_START_{block_id}")
+                self.procedure += f".WHILE_END_{block_id}:\n"
             case _:
-                print(f"Implementation Error: Unknown value in control_stack: {self.control_stack[-1]}")
+                print(f"Implementation Error: Unknown value in control_stack")
                 sys.exit(1)
 
     def peek(self, reg: str):
@@ -185,11 +180,9 @@ class Generator:
         self.inst("str", f"{reg}, [sp, #-16]!")
     
     def expect_stack(self, count: int):
-        if self.stack_depth < count:
-            print(f"Compilation Error: '{self.current()}' expects at least {count} elements on the stack")
+        if self.current_stack_depth < count:
+            print(f"Compilation Error: '{self.current()}' expects at least {count} elements on the stack, got: {self.current_stack_depth}")
             sys.exit(1)
-        else:
-            print(self.stack_depth)
 
     def gen_asm(self):
         prev = ""
@@ -208,7 +201,7 @@ class Generator:
                     self.inst("bl", "_printf")
                     self.inst("add", "sp, sp, #16")
 
-                    self.stack_depth -= 2
+                    self.current_stack_depth -= 2
                 case "intrinsic__printf_ln":
                     # special case
                     self.pop("x0")
@@ -217,27 +210,28 @@ class Generator:
                     self.inst("mov", "x0, #10")
                     self.inst("bl", "_putchar")
 
-                    self.stack_depth -= 2
+                    self.current_stack_depth -= 2
                 case "intrinsic__scanf":
                     # special case
                     self.pop("x0")
                     self.inst("bl", "_scanf")
                     self.inst("add", "sp, sp, #16")
 
-                    self.stack_depth -= 2
+                    self.current_stack_depth -= 2
                 case "dup":
                     self.expect_stack(1)
 
                     self.peek("x0")
                     self.push("x0")
 
-                    self.stack_depth += 1
+                    self.current_stack_depth += 1
+                    
                 case "drop":
                     self.expect_stack(1)
 
                     self.inst("add", "sp, sp, #16")
 
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "swap":
                     self.expect_stack(2)
 
@@ -261,7 +255,7 @@ class Generator:
                     self.inst("ldr", "x0, [sp, #16]")
                     self.push("x0")
 
-                    self.stack_depth += 1
+                    self.current_stack_depth += 1
                 case "pick":
                     self.expect_stack(1)
 
@@ -284,14 +278,14 @@ class Generator:
                     self.pop("x0")
                     self.inst("bl", "_free")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "exit":
                     self.expect_stack(1)
 
                     self.pop("x0")
                     self.inst("bl", "_exit")
 
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case ".":
                     self.expect_stack(1)
 
@@ -308,7 +302,7 @@ class Generator:
                     self.inst("ldr", "x0, [x1, x0, lsl #3]")
                     self.push("x0")
 
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "=":
                     self.expect_stack(2)
 
@@ -317,7 +311,7 @@ class Generator:
                     self.pop("x2")
                     self.inst("str", "x0, [x2, x1, lsl #3]")
 
-                    self.stack_depth -= 2
+                    self.current_stack_depth -= 2
                 case "[]=":
                     self.expect_stack(3)
 
@@ -326,7 +320,7 @@ class Generator:
                     self.pop("x2")
                     self.inst("str", "x0, [x2, x1, lsl #3]")
 
-                    self.stack_depth -= 3
+                    self.current_stack_depth -= 3
                 case "if":
                     self.if_branch()
                 case "while":
@@ -373,7 +367,7 @@ class Generator:
                     self.inst("add", "x0, x0, x1")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "-":
                     self.expect_stack(2)
 
@@ -382,7 +376,7 @@ class Generator:
                     self.inst("sub", "x0, x0, x1")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "*":
                     self.expect_stack(2)
 
@@ -391,7 +385,7 @@ class Generator:
                     self.inst("mul", "x0, x0, x1")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "/":
                     self.expect_stack(2)
 
@@ -400,7 +394,7 @@ class Generator:
                     self.inst("sdiv", "x0, x0, x1")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case '%':
                     self.expect_stack(2)
 
@@ -410,7 +404,7 @@ class Generator:
                     self.inst("msub", "x0, x2, x1, x0")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "&":
                     self.expect_stack(2)
 
@@ -419,7 +413,7 @@ class Generator:
                     self.inst("and", "x0, x0, x1")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "|":
                     self.expect_stack(2)
                     
@@ -428,7 +422,7 @@ class Generator:
                     self.inst("orr", "x0, x0, x1")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "^":
                     self.expect_stack(2)
 
@@ -437,7 +431,7 @@ class Generator:
                     self.inst("eor", "x0, x0, x1")
                     self.push("x0")
 
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "~":
                     self.pop("x0")
                     self.inst("mvn", "x0, x0")
@@ -450,7 +444,7 @@ class Generator:
                     self.inst("lsl", "x0, x0, x1")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case ">>":
                     self.expect_stack(2)
 
@@ -459,7 +453,7 @@ class Generator:
                     self.inst("asr", "x0, x0, x1")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "<":
                     self.expect_stack(2)
 
@@ -469,7 +463,7 @@ class Generator:
                     self.inst("cset", "x0, lt")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case ">":
                     self.expect_stack(2)
 
@@ -479,7 +473,7 @@ class Generator:
                     self.inst("cset", "x0, gt")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "==":
                     self.expect_stack(2)
 
@@ -489,7 +483,7 @@ class Generator:
                     self.inst("cset", "x0, eq")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "!=":
                     self.expect_stack(2)
 
@@ -499,7 +493,7 @@ class Generator:
                     self.inst("cset", "x0, ne")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "<=":
                     self.expect_stack(2)
 
@@ -509,7 +503,7 @@ class Generator:
                     self.inst("cset", "x0, le")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case ">=":
                     self.expect_stack(2)
 
@@ -519,7 +513,7 @@ class Generator:
                     self.inst("cset", "x0, ge")
                     self.push("x0")
                     
-                    self.stack_depth -= 1
+                    self.current_stack_depth -= 1
                 case "[hijack]":
                     curr = self.next()
                     if curr == "{":
@@ -547,7 +541,7 @@ class Generator:
                         self.inst("add", f"x0, x0, l_.STR.{str_id}@PAGEOFF")
                         self.push("x0")
 
-                        self.stack_depth += 1
+                        self.current_stack_depth += 1
                     elif curr[0] == ".":
                         var = '_' + curr[1:]
                         self.comment("Push variable address")
@@ -555,7 +549,7 @@ class Generator:
                         self.inst("add", f"x0, x0, {var}@PAGEOFF")
                         self.push("x0")
 
-                        self.stack_depth += 1
+                        self.current_stack_depth += 1
                     elif curr[-1] == '!':
                         proc_callee = '_' + curr[:-1]
                         self.comment("Load arguments")
@@ -572,7 +566,7 @@ class Generator:
                             is_variadic = True
                             if self.callee_arg_count > -1:
                                 self.expect_stack(self.callee_arg_count)
-                                self.stack_depth -= (self.callee_arg_count)
+                                self.current_stack_depth -= (self.callee_arg_count)
                             else:
                                 print("Compilation Error: variadic variable count not set with '$' operator before call to variadic procedure")
                                 sys.exit(1)
@@ -610,7 +604,7 @@ class Generator:
 
                                 i += 1
 
-                                self.stack_depth -= 1
+                                self.current_stack_depth -= 1
                         
                         if is_variadic and self.callee_arg_count > -1:
                             N = self.callee_arg_count
@@ -649,10 +643,10 @@ class Generator:
                             pass
                         elif type == "float" or type == "double":
                             self.push("v0")
-                            self.stack_depth += 1
+                            self.current_stack_depth += 1
                         else:
                             self.push("x0")
-                            self.stack_depth += 1
+                            self.current_stack_depth += 1
                         
                     elif curr[0] == '$':
                         count = curr[1:]
@@ -661,7 +655,6 @@ class Generator:
                             sys.exit(1)
                         else:
                             self.callee_arg_count = int(count)
-                            print(self.callee_arg_count)
                     else:
                         if is_integer(curr):
                             self.inst("mov", f"x0, #{curr}")
@@ -673,7 +666,7 @@ class Generator:
                             print(f"Compilation Error: Token '{curr}' is not an integer or a float value")
                             sys.exit(1)
                         
-                        self.stack_depth += 1
+                        self.current_stack_depth += 1
 
             self.advance()
 
@@ -809,6 +802,9 @@ class Generator:
 
                             for i in range(0, len(self.procedure_params[name])):
                                 self.push(f"x{i}")
+                        
+                            self.current_stack_depth = len(params)
+
                         elif self.current() == "[hijack]":
                             curr = self.next()
 
@@ -834,7 +830,7 @@ class Generator:
                             for i in range(0, len(self.procedure_params[name])):
                                 self.push(f"x{i}")
                         
-                        self.stack_depth += len(params)
+                            self.current_stack_depth = len(params)
                         
                         self.advance()
 
