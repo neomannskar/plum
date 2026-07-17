@@ -12,7 +12,7 @@ proc smart_alloc ( qword ) ptr :
       @SMART_ALLOC_MAX_PTR_COUNT alloc
       if dup @NULL ==
       do
-         "Failed to initialize smart_alloc!" "%s" @println
+         "Failed to initialize smart_alloc!" "%s" $1 @println
       else end
 
       .smart_alloc_list_ptr 0 rot []=
