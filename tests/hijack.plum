@@ -1,8 +1,8 @@
 import "std/io"
 
 proc add ( qword qword ) [hijack] qword :
-    [hijack] "add x0, x0, x1"
-    [hijack] { "ldp x29, x30, [sp], #16" "ret" }
+    [hijack] "add x0, x0, x1" ;
+    [hijack] { "ldp x29, x30, [sp], #16" "ret" } ;
 end
 
 proc main ( qword ptr ) [hijack] qword :

@@ -1,0 +1,6 @@
+import "std/io"
+
+proc main ( ) :
+    'c' "%c" $1 @println
+    'c' "%d" $1 @println
+end
