@@ -1,0 +1,14 @@
+import "std/io"
+import "std/mem"
+
+proc main ( ) qword :
+    32 smart_alloc! "%p" $1 @println
+    32 smart_alloc! "%p" $1 @println    
+
+    smart_free! if 0 ==
+    do
+        "Deallocation finished successfully." "%s" $1 @println
+    else end
+
+    0 return
+end

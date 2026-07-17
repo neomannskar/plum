@@ -1,6 +1,7 @@
 extern proc putchar ( byte ) ;
 extern proc puts    ( ptr ) ;
 extern proc printf  ( ptr ... ) ;
+extern proc fprintf ( ptr ptr ... ) ;
 
 extern proc scanf   ( ptr ... ) ;
 
@@ -21,3 +22,7 @@ macro SEEK_CUR  1       # set file offset to current plus offset
 macro SEEK_END  2       # set file offset to EOF plus offset
 macro SEEK_HOLE 3       # set file offset to the start of the next hole greater than or equal to the supplied offset
 macro SEEK_DATA 4       # set file offset to the start of the next non-hole file region greater than or equal to the supplied offset
+
+macro stdout [hijack] { "adrp	 x0, ___stdoutp@GOTPAGE" "ldr     x0, [x0, ___stdoutp@GOTPAGEOFF]" "ldr      x0, [x0]" "str     x0, [sp, #-16]!" }
+macro stderr [hijack] { "adrp	 x0, ___stderrp@GOTPAGE" "ldr     x0, [x0, ___stderrp@GOTPAGEOFF]" "ldr      x0, [x0]" "str     x0, [sp, #-16]!" }
+macro stdin  [hijack] { "adrp	 x0, ___stdinp@GOTPAGE"  "ldr     x0, [x0, ___stdinp@GOTPAGEOFF]"  "ldr      x0, [x0]" "str     x0, [sp, #-16]!" }

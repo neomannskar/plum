@@ -102,6 +102,9 @@ class Generator:
     def inst(self, op, operand):
         width = 8
         self.procedure += f"    {op:<{width}}{operand}\n"
+    
+    def hijack(self, code):
+        self.procedure += f"    {code}\n"
 
     def if_branch(self):
         # self.branches[self.if_counter] = self.stack_depth
@@ -180,7 +183,7 @@ class Generator:
 
     def push(self, reg: str):
         self.inst("str", f"{reg}, [sp, #-16]!")
-
+    
     def expect_stack(self, count: int):
         if self.stack_depth < count:
             print(f"Compilation Error: '{self.current()}' expects at least {count} elements on the stack")
@@ -517,6 +520,22 @@ class Generator:
                     self.push("x0")
                     
                     self.stack_depth -= 1
+                case "[hijack]":
+                    curr = self.next()
+                    if curr == "{":
+                        curr = self.current()
+                        while curr != "}":
+                            if len(curr) > 2:
+                                self.hijack(curr[1:-1]);
+                            curr = self.next()
+
+
+                    elif curr[0] == '"':
+                        if len(curr) > 2:
+                            self.hijack(curr[1:-1]);
+                    else:
+                        print("Compilation Error: Expected String literal or block '{ ... }' after in compiler hijack")
+                        sys.exit(1)
                 case _:
                     if curr[0] == '"':
                         string_lit = curr
@@ -551,7 +570,7 @@ class Generator:
                         is_variadic = False
                         if "..." in params:
                             is_variadic = True
-                            if self.callee_arg_count > 0:
+                            if self.callee_arg_count > -1:
                                 self.expect_stack(self.callee_arg_count)
                                 self.stack_depth -= (self.callee_arg_count)
                             else:
@@ -593,12 +612,13 @@ class Generator:
 
                                 self.stack_depth -= 1
                         
-                        if is_variadic and self.callee_arg_count > 0:
+                        if is_variadic and self.callee_arg_count > -1:
                             N = self.callee_arg_count
                             aligned_size = ((N + 1) // 2) * 16
                             
-                            self.comment("Repack variadic arguments for macOS ABI (8-byte slots)")
-                            self.inst("sub", f"sp, sp, #{aligned_size}")
+                            if aligned_size > 0:
+                                self.comment("Repack variadic arguments for macOS ABI (8-byte slots)")
+                                self.inst("sub", f"sp, sp, #{aligned_size}")
                             
                             for j in range(N):
                                 old_offset = aligned_size + (j * 16)
@@ -614,12 +634,12 @@ class Generator:
                         self.comment("Call")
                         self.inst("bl", f"{proc_callee}")
                         if is_variadic:
-                            if self.callee_arg_count > 0:
+                            if self.callee_arg_count > -1:
                                 aligned_size = ((self.callee_arg_count + 1) // 2) * 16
                                 total_cleanup = aligned_size + (self.callee_arg_count * 16)
                                 
                                 self.inst("add", f"sp, sp, #{total_cleanup}")
-                                self.callee_arg_count = 0
+                                self.callee_arg_count = -1
                             else:
                                 print(f"Compilation Error: variadic variable count not set with '$' operator before call to variadic procedure: {self.callee_arg_count}")
                                 sys.exit(1)
@@ -667,7 +687,7 @@ class Generator:
         while self.tok_iter < self.tok_len:
             prev = curr
             curr = self.current()
-            
+
             match curr:
                 case "static":
                     name = self.next()
@@ -734,10 +754,10 @@ class Generator:
 
                         if curr == ';':
                             self.procedure_return[name] = 0
-                            print(params)
+                            # print(params)
                         else:
                             self.procedure_return[name] = curr
-                            print(params, curr)
+                            # print(params, curr)
                             curr = self.next()
                             if curr != ';':
                                 print(f"Compilation Error: Expected ';' at end of extern proc definition")
@@ -780,23 +800,41 @@ class Generator:
                             print("Maximum number of procedure arguments reached!\n\tProcedures can only take 7 arguments in Plum v1.0")
                             sys.exit(1)
 
-                        print(params)
+                        # print(params)
 
                         self.procedure_params[name] = params
 
                         if self.current() == ":":
                             self.procedure_return[name] = 0
+
+                            for i in range(0, len(self.procedure_params[name])):
+                                self.push(f"x{i}")
+                        elif self.current() == "[hijack]":
+                            curr = self.next()
+
+                            if curr == ":":
+                                self.procedure_return[name] = 0
+                            else:
+                                self.procedure_return[name] = curr
+
+                                curr = self.next()
+
+                                if curr != ":":
+                                    print(f"Compilation Error: Expected ':' at end of proc header definition, got: {curr}")
+                                    sys.exit(1)
                         else:
                             self.procedure_return[name] = curr
 
                             curr = self.next()
-                            if curr != ':':
-                                print(f"Compilation Error: Expected ':' at end of proc header definition")
+                            
+                            if curr != ":":
+                                print(f"Compilation Error: Expected ':' at end of proc header definition, got: {curr}")
                                 sys.exit(1)
                         
-                        for i in range(0, len(self.procedure_params[name])):
-                            self.push(f"x{i}")
-                            self.stack_depth += 1
+                            for i in range(0, len(self.procedure_params[name])):
+                                self.push(f"x{i}")
+                        
+                        self.stack_depth += len(params)
                         
                         self.advance()
 

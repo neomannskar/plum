@@ -9,14 +9,16 @@ static file ptr 1
 static size qword 1
 static buffer ptr 1
 
-proc main ( qword ptr ) :
-    . "%s" $1 @println
+proc main ( qword ptr ) qword :
+    swap 
+    # -- ptr qword
+    if dup 2 < do
+        swap . "Usage: %s <file>" $1 @println
+        1 exit
+    else end
 
-    drop
+    swap 1 [] "rb" over fopen!
 
-    .input "%255s" $1 scanf!
-
-    .input "rb" over fopen!
     if dup @NULL ==
     do
         pick 1 "Failed to open file %s" $1 @println
@@ -56,6 +58,7 @@ proc main ( qword ptr ) :
 
     .buffer . .size . 0 []=
     
-    .buffer . "%s" $1 @println 
-    0 exit
+    .buffer . "%s" $1 @println
+
+    0 return
 end
