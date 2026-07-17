@@ -5,21 +5,31 @@ import platform
 import argparse
 import subprocess
 
-# import plum_win_lin_x86_64
-import plum_mac_arm
 
 def parse_args():
+    raw_args = sys.argv[1:]
+    build_flags = []
+    if "--flags" in raw_args:
+        idx = raw_args.index("--flags")
+        build_flags = raw_args[idx + 1:]
+        raw_args = raw_args[:idx]
+ 
     parser = argparse.ArgumentParser(
         prog="plum",
         description="Compile a .plum source file to a native executable.",
+        epilog=(
+            'Pass compiler/linker flags with --flags, placed last on the command line - '
+            'everything after it is forwarded as-is, e.g.:\n'
+            '  plum.py file.plum --emit ./asm -o ./out --flags -O2 -lraylib -framework OpenGL'
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("source", help="Path to the .plum source file")
     parser.add_argument(
         "--emit",
         dest="asm_file",
         metavar="FILE",
-        help="Base path for the generated assembly (.s appended). "
-             "Defaults to the source file's name.",
+        help="Base path for the generated assembly (.s appended). Defaults to the source file's name.",
     )
     parser.add_argument(
         "-o",
@@ -27,20 +37,20 @@ def parse_args():
         metavar="FILE",
         help="Path for the compiled executable. Defaults to the source file's name.",
     )
-    args = parser.parse_args()
-
+    args = parser.parse_args(raw_args)
+ 
     if not os.path.isfile(args.source):
         parser.error(f"no such file: {args.source}")
-
+ 
     stem = os.path.splitext(os.path.basename(args.source))[0]
-
+ 
     asm_file = args.asm_file or stem
-    if asm_file.endswith(".s"):        # tolerate "--emit foo.s" as well as "--emit foo"
+    if asm_file.endswith(".s"):
         asm_file = asm_file[:-2]
-
+ 
     out_file = args.out_file or stem
-
-    return args.source, asm_file, out_file
+ 
+    return args.source, asm_file, out_file, build_flags
 
 COMPILER_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -136,7 +146,7 @@ def tokenize(source_code):
     
     return tokens, str_literals
 
-s_file, a_file, o_file = parse_args()
+s_file, a_file, o_file, build_flags = parse_args()
 source = read_file(s_file)
 source_code = preprocess(source)
 tokens, str_literals = tokenize(source_code)
@@ -176,4 +186,22 @@ asm = generator.gen()
 with open(f"{a_file}.s", "w") as f:
     f.write(asm)
 
-subprocess.run(["gcc", f"{a_file}.s", "-o", f"{o_file}"])
+def try_compile(compiler):
+    command = [compiler, f"{a_file}.s", "-o", o_file] + build_flags
+    try:
+        result = subprocess.run(command, capture_output=True, text=True)
+    except FileNotFoundError:
+        return False, f"'{compiler}' not found on PATH"
+    if result.returncode != 0:
+        return False, result.stderr.strip()
+    return True, None
+
+last_error = None
+for compiler in ("gcc", "clang"):
+    ok, err = try_compile(compiler)
+    if ok:
+        break
+    last_error = err
+else:
+    print(f"Failed to assemble program:\n{last_error}", file=sys.stderr)
+    sys.exit(1)
