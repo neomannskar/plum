@@ -29,7 +29,7 @@ class Generator:
     procedures: list = []           # List of procedure names
     
     current_procedure: str = ""     # Current procedure name
-    callee_arg_count: int = 0       # Callee arg count for variadics
+    callee_arg_count: int = -1      # Callee arg count for variadics
     procedure_params: dict = {}     # List of procedures' parameters
     procedure_return: dict = {}     # List of procedures' return values
 
@@ -747,10 +747,8 @@ class Generator:
 
                         if curr == ';':
                             self.procedure_return[name] = 0
-                            # print(params)
                         else:
                             self.procedure_return[name] = curr
-                            # print(params, curr)
                             curr = self.next()
                             if curr != ';':
                                 print(f"Compilation Error: Expected ';' at end of extern proc definition")
@@ -792,8 +790,6 @@ class Generator:
                         if len(params) > 7:
                             print("Maximum number of procedure arguments reached!\n\tProcedures can only take 7 arguments in Plum v1.0")
                             sys.exit(1)
-
-                        # print(params)
 
                         self.procedure_params[name] = params
 
