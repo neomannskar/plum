@@ -3,16 +3,16 @@ import "std/lib"
 
 macro SMART_ALLOC_MAX_PTR_COUNT 128
 
-static smart_alloc_count 1
-static smart_alloc_list_ptr 1
+static smart_alloc_count qword 1
+static smart_alloc_list_ptr ptr 1
 
-proc smart_alloc 1 :
+proc smart_alloc ( qword ) ptr :
    .smart_alloc_list_ptr 0 [] if 0 ==
    do
       @SMART_ALLOC_MAX_PTR_COUNT alloc
       if dup @NULL ==
       do
-         "Failed to initialize smart_alloc!" "%s" @println
+         "Failed to initialize smart_alloc!" "%s" $1 @println
       else end
 
       .smart_alloc_list_ptr 0 rot []=
@@ -29,7 +29,7 @@ proc smart_alloc 1 :
    return
 end
 
-proc smart_free :
+proc smart_free ( ) qword :
    0 while dup .smart_alloc_count 0 [] <
    do
       dup .smart_alloc_list_ptr 0 [] rot [] free ++
