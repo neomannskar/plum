@@ -578,29 +578,50 @@ class Generator:
                                     sys.exit(1)
                                 break
                             else:
-                                if param == "float" or param == "double":
-                                    self.inst("ldr", f"v{i}, [sp], #16")
-                                else:
-                                    match param:
-                                        case "byte":    # 8-bit
-                                            pass
-                                        case "word":    # 16-bit
-                                            pass
-                                        case "dword":   # 32-bit
-                                            pass
-                                        case "qword":   # 64-bit
-                                            pass
-                                        case "ptr":     # 64-bit
-                                            pass
-                                        case "float":   # 32-bit
-                                            pass
-                                        case "double":  # 64-bit
-                                            pass
-                                        case _:
-                                            print(f"Unknown parameter type: {param}")
-                                            sys.exit(1)
+                                match param:
+                                    case "byte":    # 8-bit
+                                        self.expect_stack(1)
+                                        self.inst("ldr", f"w{i}, [sp], #16")
+                                    case "word":    # 16-bit
+                                        self.expect_stack(1)
+                                        self.inst("ldr", f"w{i}, [sp], #16")
+                                    case "dword":   # 32-bit
+                                        self.expect_stack(1)
+                                        self.pop(f"w{i}")
+                                    case "qword":   # 64-bit
+                                        self.expect_stack(1)
+                                        self.pop(f"x{i}")
+                                    case "ptr":     # 64-bit
+                                        self.expect_stack(1)
+                                        self.pop(f"x{i}")
+                                    case "float":   # 32-bit
+                                        self.expect_stack(1)
+                                        self.inst("ldr", f"s{i}, [sp], #16")
+                                    case "double":  # 64-bit
+                                        self.expect_stack(1)
+                                        self.inst("ldr", f"v{i}, [sp], #16")
+                                    case "[byte4]":
+                                        self.expect_stack(4)
+                                        
+                                        self.pop("x0")   # a
+                                        self.pop("x1")   # b
+                                        self.pop("x2")   # g
+                                        self.pop("x3")   # r
 
-                                    self.pop(f"x{i}")
+                                        self.inst("lsl", "x2, x2, #8")     # g << 8
+                                        self.inst("lsl", "x1, x1, #16")    # b << 16
+                                        self.inst("lsl", "x0, x0, #24")    # a << 24
+
+                                        self.inst("orr", "x3, x3, x2")
+                                        self.inst("orr", "x3, x3, x1")
+                                        self.inst("orr", "x3, x3, x0")
+
+                                        self.inst("mov", f"w{i}, w3")
+
+                                        self.current_stack_depth -= 3
+                                    case _:
+                                        print(f"Unknown parameter type: {param}")
+                                        sys.exit(1)
 
                                 i += 1
 

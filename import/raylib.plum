@@ -1,4 +1,4 @@
-# -- BUILD WITH -L/opt/homebrew/lib -lraylib -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
+# -- BUILD WITH -I/opt/homebrew/include -L/opt/homebrew/lib -lraylib -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
 
 extern proc InitWindow ( dword dword ptr ) ;
 extern proc WindowShouldClose (  ) dword ;
@@ -7,3 +7,5 @@ extern proc BeginDrawing ( ) ;
 extern proc EndDrawing ( ) ;
 
 extern proc CloseWindow ( ) ;
+
+extern proc ClearBackground ( [byte4] ) ; # -- Aggregate for byte byte byte byte

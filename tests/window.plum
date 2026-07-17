@@ -1,12 +1,12 @@
 import "import/raylib"
 
 proc main ( ) :
-    "raylib in plum!" 450 800 InitWindow!
+    "Raylib in Plum!" 450 800 InitWindow!
     
     0 while dup WindowShouldClose! ==
     do
         BeginDrawing!
-        # -- Draw stuff here
+            135 60 190 255 ClearBackground!
         EndDrawing!
     end drop
 
