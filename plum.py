@@ -158,6 +158,8 @@ architecture = platform.machine().lower()
 
 Generator = None
 
+# print(os_type, f"{architecture}")
+
 if os_type == "darwin":
     if "arm64" in architecture or "aarch64" in architecture:
         from plum_mac_arm import Generator
@@ -168,9 +170,9 @@ if os_type == "darwin":
 elif os_type == "linux" or os_type == "windows":
     if "arm64" in architecture or "aarch64" in architecture:
         raise NotImplementedError(f"Linux/Windows ARM64 is not implemented yet!")
-    elif "x86_64" in architecture:
+    elif "x86_64" or "amd64" in architecture:
         print("TODO: Windows/Linux x86_64")
-        # from plum_win_lin_x86_64 import Generator
+        from plum_win_x86_64 import Generator
 else:
     if "arm" in architecture:
         raise NotImplementedError(f"{os_type} ({architecture})\n")
