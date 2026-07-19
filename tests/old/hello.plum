@@ -1,0 +1,6 @@
+import "std/io"
+
+proc main :
+    "Hello World!" "%s" @println
+    0 return
+end

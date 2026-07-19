@@ -1,0 +1,11 @@
+import "std/io"
+
+proc main :
+    0 if dup 1 <
+    do
+        "True" "%s" @println
+    else
+        "False" "%s" @println
+    end drop
+    0 return
+end

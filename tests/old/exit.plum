@@ -1,0 +1,11 @@
+proc main :
+    0 if
+        dup 1 ==
+    do
+        1 exit
+    else
+        0 exit
+    end drop
+
+    0 return
+end

@@ -1,0 +1,28 @@
+import "std/io"
+import "std/lib"
+
+proc main :
+    32 alloc
+    
+    if dup @NULL ==
+    do
+        "Failed to allocate memory" "%s" @println
+        1 exit
+    else end
+
+    0 while dup 32 <
+    do
+        over over dup []=
+        ++
+    end drop
+
+    0 while dup 32 <
+    do
+        over over [] "%ld" @println
+        ++
+    end drop
+
+    free
+
+    0 return
+end

@@ -1,0 +1,18 @@
+import "std/io"
+
+static buffer ptr 1
+
+proc main ( ) :
+    32 alloc
+    if dup 0 == do
+        "Failed to allocate memory" puts!
+        1 exit
+    else end
+
+    .buffer swap =
+
+    .buffer . 31 0 []=
+
+    123 "%lld" .buffer . $1 sprintf!
+    .buffer . puts!
+end

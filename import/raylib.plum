@@ -1,0 +1,25 @@
+# -- BUILD ON MACOS WITH -I/opt/homebrew/include -L/opt/homebrew/lib -lraylib -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
+
+extern proc GetScreenWidth  ( ) dword ;
+extern proc GetScreenHeight ( ) dword ; 
+
+extern proc InitWindow     ( dword dword ptr ) ;
+extern proc SetTargetFPS   ( dword ) ;
+
+extern proc WindowShouldClose (  ) dword ;
+
+extern proc BeginDrawing ( ) ;
+extern proc EndDrawing   ( ) ;
+
+extern proc CloseWindow ( ) ;
+
+extern proc ClearBackground ( [byte4] ) ;                           # -- Aggregate for byte byte byte byte
+extern proc DrawFPS         ( dword dword ) ;
+extern proc DrawText        ( ptr dword dword dword [byte4] ) ;
+extern proc DrawRectangle   ( dword dword dword dword [byte4] ) ;
+
+extern proc IsKeyDown ( qword ) byte ;
+
+macro VIOLET 135 60  190 255
+macro WHITE  255 255 255 255
+macro BLACK  0   0   0   255

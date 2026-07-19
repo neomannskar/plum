@@ -1,0 +1,84 @@
+import "std/io"
+import "std/lib"
+
+proc main ( ) :
+    "Rule 110 Generation" "%s" $1 @println
+
+    16 alloc # [ scratch ]
+    if dup @NULL == do "Alloc failed" "%s" $1 @println 1 exit else end
+    64 alloc # [ scratch, curr ]
+    64 alloc # [ scratch, curr, next ]
+    65 alloc # [ scratch, curr, next, display ]
+
+    0 while dup 64 < do
+        3 pick over 0 []=
+        ++
+    end drop
+
+    0 while dup 64 < do
+        2 pick over 0 []=   
+        ++
+    end drop
+
+    2 pick 62 1 []=
+
+    0 while dup 62 < do
+        
+        1 while dup 63 < do
+            4 pick over 1 - []  
+            
+            5 pick 2 pick []
+            
+            6 pick 3 pick 1 + []
+            
+            swap 1 << |
+            swap 2 << |         
+            
+            110 swap >> 1 &
+            
+            4 pick
+            2 pick
+            2 pick
+            []=
+            drop
+
+            ++
+        end drop
+        
+        0 while dup 64 < do
+            4 pick over []
+            
+            if 1 == do
+                35 "%c" $1 @print
+            else
+                32 "%c" $1 @print
+            end
+            ++
+        end drop
+        
+        10 "%c" $1 @print
+        
+        0 while dup 64 < do
+            3 pick over []
+            
+            5 pick
+            2 pick
+            2 pick
+            []=
+            drop
+
+            ++
+        end drop
+        
+        ++
+    end drop
+
+    free
+    free
+    free
+    free
+
+    "Execution finished successfully!" "%s" $1 @println
+
+    0 return
+end

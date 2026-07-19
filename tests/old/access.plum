@@ -1,0 +1,15 @@
+import "std/io"
+import "std/lib"
+
+proc main :
+    32 alloc
+    if dup @NULL == do
+        "Failed to allocate memory" "%s" @println
+        1 return
+    else end
+
+    dup 69 =
+    . "%d" @println
+    
+    0 return
+end

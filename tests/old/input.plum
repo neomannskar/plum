@@ -1,0 +1,9 @@
+import "std/io"
+
+static buffer 128
+
+proc main :
+    .buffer "%ld" @stdin
+    .buffer 0 [] "%ld" @println
+    0 return
+end
