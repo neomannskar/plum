@@ -39,7 +39,7 @@ def run_tests():
         output_path = os.path.join(BUILD_DIR, base_name)
 
         compile_cmd = [
-            "python", "plum.py",
+            "python3", "plum.py",
             input_path,
             "--emit", assembly_path,
             "-o", output_path
