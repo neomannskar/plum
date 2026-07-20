@@ -6,7 +6,7 @@
 
 Plum is a small, compiled, stack-based programming language. Programs are written as postfix token streams operating on a single data stack, similar in spirit to Forth: values are pushed, and operators and procedures consume whatever they need off the top of the stack. Plum compiles this directly to native assembly rather than interpreting it.
 
-> **Status:** Plum currently only compiles to AArch64 (ARM64) assembly on macOS. Support for x86_64 on Windows is actively being worked on, with a Linux port to follow after that. See [Roadmap](#roadmap).
+> **Status:** Plum currently only compiles to AArch64 (ARM64) assembly on macOS as well as x86_64 on Windows. A Linux port is underway. See [Roadmap](#roadmap).
 
 ## Requirements
 
