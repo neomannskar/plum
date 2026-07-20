@@ -1,7 +1,6 @@
 import "std/io"
 
-static buffer qword 128
-
-proc main ( dword ptr ) :
+proc main ( dword ptr ) dword :
     "Hello World!" "%s" $1 @println
+    0 return
 end

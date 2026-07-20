@@ -19,6 +19,7 @@ def is_float(token):
         return False
 
 class Generator:
+    source_file: str = ""           # Source code file name
     tokens: list                    # List of tokens
     str_lits: list                  # String literals extracted earlier
     tok_len: int = 0                # Length of 'tokens'
@@ -46,11 +47,11 @@ class Generator:
 
     program: str = ""               # Holds compiled program when done
 
-    def __init__(self, tokens, str_literals):
+    def __init__(self, source_name: str, tokens: list, str_literals: list):
+        self.source_file = source_name
         self.tok_len = len(tokens)
         self.tokens = tokens
         self.str_lits = str_literals
-        pass
 
     def size_of(type) -> int:
         match type:
@@ -350,6 +351,8 @@ class Generator:
                             self.inst("mov", "x0, #0")
                             self.inst("ldp", "x29, x30, [sp], #16")
                             self.inst("ret", "")
+                        
+                        self.current_stack_depth = 0
                         return
                 case "++":
                     self.pop("x0")
@@ -580,7 +583,7 @@ class Generator:
                         self.current_stack_depth += 1
                     elif curr[-1] == '!':
                         proc_callee = '_' + curr[:-1]
-                        self.comment("Load arguments")
+                        self.comment(f"Load arguments for {proc_callee}")
                         
                         try:
                             params = self.procedure_params[proc_callee]
@@ -724,6 +727,7 @@ class Generator:
         prev = ""
         curr = self.current()
         
+        self.tag(f".file  \"{self.source_file}\"")
         self.tag(".section	__TEXT,__text,regular,pure_instructions")
         self.tag(".build_version macos, 26, 0	sdk_version 26, 2")
         
@@ -813,6 +817,7 @@ class Generator:
                             print(f"Compilation Error: extern proc or proc {name[1:]} already defined")
                             sys.exit(1)
                         
+                        print(name, self.current_stack_depth)
                         self.procedures.append(name)
                         self.current_procedure = name
 

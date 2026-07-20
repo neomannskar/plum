@@ -29,6 +29,7 @@ class Win64ABI:
         return self.ARG_REGS[index][8]
 
 class Generator:
+    source_file: str = ""           # Source code file name
     tokens: list                    # List of tokens
     str_lits: list                  # String literals extracted earlier
     tok_len: int = 0                # Length of 'tokens'
@@ -42,6 +43,7 @@ class Generator:
     callee_arg_count: int = -1      # Callee arg count for variadics
     procedure_params: dict = {}     # List of procedures' parameters
     procedure_return: dict = {}     # List of procedures' return values
+    procedure_base_depth: int = 0   # Base de
 
     procedure: str = ""             # Current procedure code
     
@@ -55,16 +57,28 @@ class Generator:
     statics: dict = {}              # Static variables [name] = type
 
     abi: Win64ABI                   # Holds Windows 64 ABI-specific details
-    stack_allocation: int = 32      # Holds the amount to allocate and reset (bytes)
 
     program: str = ""               # Holds compiled program when done
 
-    def __init__(self, tokens, str_literals):
+    def __init__(self, source_name: str, tokens: list, str_literals: list):
+        self.source_file = source_name
         self.tok_len = len(tokens)
         self.tokens = tokens
         self.str_lits = str_literals
         self.abi = Win64ABI()
-        pass
+
+    def define_facilities(self):
+        self.procedures.append("malloc")
+        self.procedure_params["malloc"] = ["dword"]
+        self.procedure_return["malloc"] = "ptr"
+
+        self.procedures.append("free")
+        self.procedure_params["free"] = ["ptr"]
+        self.procedure_return["free"] = 0
+
+        self.procedures.append("exit")
+        self.procedure_params["exit"] = ["dword"]
+        self.procedure_return["exit"] = 0
 
     def size_of(type) -> int:
         match type:
@@ -112,7 +126,7 @@ class Generator:
         self.program += f"    {tag}\n"
 
     def symbol(self, symbol: str):
-        self.program += f"\"{symbol}\":\n"
+        self.program += f"{symbol}:\n"
     
     def inst(self, op, operand):
         width = 8
@@ -122,10 +136,10 @@ class Generator:
         self.procedure += f"    {code}\n"
 
     def if_branch(self):
-        self.procedure += f".IF_BRANCH_{self.if_counter}:"
+        self.procedure += f".IF_BRANCH_{self.if_counter}:\n"
         self.control_stack.append(("I", self.if_counter, self.current_stack_depth))
         self.if_counter += 1
-    
+
     def else_branch(self):
         if not self.control_stack or self.control_stack[-1][0] != 'I':
             print(f"Compilation Error: Unexpected 'else', missing associated 'if'")
@@ -135,32 +149,35 @@ class Generator:
 
         if self.current_stack_depth > saved_depth:
             self.comment("Else: Auto-dropping")
-            self.inst("add", f"sp, sp, #{(self.current_stack_depth - saved_depth) * 8}")
+            self.inst("add", f"rsp, {(self.current_stack_depth - saved_depth) * 8}")
         
         self.current_stack_depth = saved_depth
         
-        self.inst("b", f".END_BRANCH_{block_id}")
+        # Ändrat 'b' till 'jmp' för x86_64
+        self.inst("jmp", f".END_BRANCH_{block_id}")
         self.procedure += f".ELSE_BRANCH_{block_id}:\n"
         self.comment("Else-branch:")
 
     def while_branch(self):
-        self.procedure += f".WHILE_START_{self.while_counter}:"
+        self.procedure += f".WHILE_START_{self.while_counter}:\n"
         self.control_stack.append(("W", self.while_counter, self.current_stack_depth))
         self.while_counter += 1
-    
+
     def do(self):
         block_type, block_id, saved_depth = self.control_stack.pop()
 
         match block_type:
             case 'I':
-                self.pop("x0")
-                self.inst("cmp", "x0, #0")
-                self.inst("b.eq", f".ELSE_BRANCH_{block_id}")
+                # Ändrat x0 -> rax, cmp-syntax och b.eq -> je
+                self.pop("rax")
+                self.inst("cmp", "rax, 0")
+                self.inst("je", f".ELSE_BRANCH_{block_id}")
                 self.comment("Then-branch:")
             case 'W':
-                self.pop("x0")
-                self.inst("cmp", "x0, #0")
-                self.inst("b.eq", f".WHILE_END_{block_id}")
+                # Ändrat x0 -> rax, cmp-syntax och b.eq -> je
+                self.pop("rax")
+                self.inst("cmp", "rax, 0")
+                self.inst("je", f".WHILE_END_{block_id}")
             case _:
                 print(f"Implementation Error: Unknown value in control_stack")
                 sys.exit(1)
@@ -173,14 +190,15 @@ class Generator:
 
         if self.current_stack_depth > saved_depth:
             self.comment("End: Auto-dropping")
-            self.inst("add", f"sp, sp, #{(self.current_stack_depth - saved_depth) * 8}")
+            self.inst("add", f"rsp, {(self.current_stack_depth - saved_depth) * 8}")
             self.current_stack_depth = saved_depth
         
         match block_type:
             case 'I':
                 self.procedure += f".END_BRANCH_{block_id}:\n"
             case 'W':
-                self.inst("b", f".WHILE_START_{block_id}")
+                # Ändrat 'b' till 'jmp' för x86_64
+                self.inst("jmp", f".WHILE_START_{block_id}")
                 self.procedure += f".WHILE_END_{block_id}:\n"
             case _:
                 print(f"Implementation Error: Unknown value in control_stack")
@@ -193,7 +211,7 @@ class Generator:
         self.inst("add", f"rsp, {bytes}")
 
     def peek(self, reg: str):
-        self.inst("mov", f"rsp, {reg}")
+        self.inst("mov", f"{reg}, [rsp]")
 
     def pop(self, reg: str):
         self.inst("pop", f"{reg}")
@@ -204,11 +222,127 @@ class Generator:
     def push_arg(self, index: int):
         reg = self.abi.push_reg(index)
         self.inst("push", f"{reg}")
+    
+    def pop_arg(self, reg: str, size: int):
+        self.pop("rax")
+
+        match size:
+            case 1:
+                self.inst("mov", f"{reg}, al")
+            case 2:
+                self.inst("mov", f"{reg}, ax")
+            case 4:
+                self.inst("mov", f"{reg}, eax")
+            case 8:
+                self.inst("mov", f"{reg}, rax")
+            case _:
+                print(f"Compilation Error: Unsupported argument size: {size}")
+                sys.exit(1)
+    
+    def home_arg(self, index: int, reg: str):
+        if index < 4:
+            return
+        
+        stack_index = index - 4
+        offset =  32 + stack_index * 8
+        
+        self.inst("mov", f"[rsp + {offset}], {reg}")
 
     def expect_stack(self, count: int):
         if self.current_stack_depth < count:
             print(f"Compilation Error: '{self.current()}' expects at least {count} elements on the stack, got: {self.current_stack_depth}")
             sys.exit(1)
+
+    def calc_align(self, depth: int):
+        used = depth * 8 + 32
+        misalignment = used % 16
+        if misalignment == 0:
+            return 0
+        else:
+            return 16 - misalignment
+
+    def call(self, proc: str):
+        try:
+            params = self.procedure_params[proc]
+        except KeyError:
+            print(f"Compilation Error: Undefined procedure: {proc}")
+            sys.exit(1)
+
+        is_variadic = "..." in params
+
+        args = []
+
+        for i, param in enumerate(params):
+            match param:
+                case "...":
+                    break
+                case "[byte4]":
+                    print("BYTE4 argument is not implemented yet!")
+                    sys.exit(1)
+                case "byte":
+                    reg = self.abi.argument_reg(i, 1)
+                    self.pop_arg(reg, 1)
+                case "word":
+                    reg = self.abi.argument_reg(i, 2)
+                    self.pop_arg(reg, 2)
+                case "dword":
+                    reg = self.abi.argument_reg(i, 4)
+                    self.pop_arg(reg, 4)
+                case "qword":
+                    reg = self.abi.argument_reg(i, 8)
+                    self.pop_arg(reg, 8)
+                case "ptr":
+                    reg = self.abi.argument_reg(i, 8)
+                    self.pop_arg(reg, 8)
+                case "float" | "double":
+                    print("Floating point arguments are not implemented yet!")
+                    sys.exit(1)
+                case _:
+                    print(f"Compilation Error: Unknown parameter type: {param}")
+                    sys.exit(1)
+
+            args.append(reg)
+            self.current_stack_depth -= 1
+
+        if is_variadic:
+            if self.callee_arg_count <= -1:
+                print(f"Compilation Error: variadic variable count not set with '$' operator before call to {proc}")
+                sys.exit(1)
+
+            for _ in range(self.callee_arg_count):
+                idx = len(args)
+                reg = self.abi.argument_reg(idx, 8)
+                self.pop_arg(reg, 8)
+                args.append(reg)
+                self.current_stack_depth -= 1
+
+        alignment = self.calc_align(self.current_stack_depth) + 32
+
+        if is_variadic:
+            self.inst("sub", f"rsp, {alignment}")
+
+            for i, reg in enumerate(args):
+                self.home_arg(i, reg)
+
+            self.inst("call", f"{proc}")
+
+            self.inst("add", f"rsp, {alignment}")
+
+            self.callee_arg_count = -1
+
+        else:
+            self.inst("sub", f"rsp, {alignment}")
+            self.inst("call", f"{proc}")
+            self.inst("add", f"rsp, {alignment}")
+
+        type = self.procedure_return[proc]
+        if type != 0:
+            if type in ["float", "double"]:
+                print("Compilation Error: Floating point numbers are not implemented yet!")
+                sys.exit(1)
+            else:
+                self.push("rax")
+            self.current_stack_depth += 1
 
     def gen_asm(self):
         prev = ""
@@ -222,30 +356,16 @@ class Generator:
             
             match curr:
                 case "intrinsic__printf":
-                    self.pop("rax")
-                    self.reserve(32)
-                    self.inst("call", "\"printf\"")
-                    self.resign(32)
-                    self.current_stack_depth -= 2
+                    print(f"Deprecated: {curr}")
+                    sys.exit(1)
                     
                 case "intrinsic__printf_ln":
-                    self.pop("rax")
-                    self.reserve(32)
-                    self.inst("call", "\"printf\"")
-                    self.resign(32)
-                    
-                    self.inst("mov", "rax, 10") # 10 is '\n'
-                    self.reserve(32)
-                    self.inst("call", "\"putchar\"")
-                    self.resign(32)
-                    self.current_stack_depth -= 2
+                    print(f"Deprecated: {curr}")
+                    sys.exit(1)
                     
                 case "intrinsic__scanf":
-                    self.pop("rax")
-                    self.reserve(32)
-                    self.inst("call", "\"scanf\"")
-                    self.resign(32)
-                    self.current_stack_depth -= 2
+                    print(f"Deprecated: {curr}")
+                    sys.exit(1)
                     
                 case "dup":
                     self.expect_stack(1)
@@ -284,37 +404,30 @@ class Generator:
                 case "pick":
                     self.expect_stack(1)
                     self.pop("rax")
-                    # x86 SIB addressing makes scaling by 8 easy
                     self.inst("mov", "rdx, [rsp + rax*8]")
                     self.push("rdx")
 
                 case "alloc":
                     self.expect_stack(1)
                     self.pop("rax")
-                    self.inst("shl", "rax, 3") # Shift left by 3 to multiply by 8
-                    self.reserve(32)
-                    self.inst("call", "\"malloc\"")
-                    self.resign(32)
+                    self.inst("shl", "rax, 3") # Change this later to either accept types or just do raw bytes
                     self.push("rax")
+                    self.call("malloc")
 
                 case "free":
                     self.expect_stack(1)
-                    self.pop("rax")
-                    self.reserve(32)
-                    self.inst("call", "\"free\"")
-                    self.resign(32)
+                    self.call("free")
                     self.current_stack_depth -= 1
                     
                 case "exit":
                     self.expect_stack(1)
-                    self.pop("rax")
-                    self.inst("call", "\"exit\"")
+                    self.call("exit")
                     self.current_stack_depth -= 1
 
                 case ".":
                     self.expect_stack(1)
                     self.pop("rax")
-                    self.inst("mov", "rax, [rax]") # Dereference address
+                    self.inst("mov", "rax, [rax]") # Dereference
                     self.push("rax")
 
                 case "[]":
@@ -337,7 +450,7 @@ class Generator:
                     self.pop("rax") # Value
                     self.pop("rcx") # Index
                     self.pop("rdx") # Base pointer
-                    self.inst("mov", "[rdx + rcx*8]", "rax")
+                    self.inst("mov", "[rdx + rcx*8], rax")
                     self.current_stack_depth -= 3
 
                 case "if":
@@ -350,8 +463,6 @@ class Generator:
                     self.else_branch()
 
                 case "return":
-                    # SET self.stack_allocation to the needed amount
-
                     type = self.procedure_return[self.current_procedure]
                     if (type == "float" or type == "double"):
                         print("Returning floats is not implemented yet!")
@@ -359,13 +470,10 @@ class Generator:
                     else:
                         self.pop("rax")      # Return value goes into rax
                         self.inst("mov", "rsp, rbp") # Tear down stack frame
-                        self.inst("add", f"rsp, {self.stack_allocation}")
                         self.inst("pop", "rbp")
                         self.inst("ret", "")
 
                 case "end":
-                    # SET self.stack_allocation to the needed amount
-
                     if len(self.control_stack) > 0:
                         self.end()
                     else:
@@ -373,11 +481,11 @@ class Generator:
                         if type == 0 and prev != "return":
                             self.inst("mov", "rax, 0")
                             self.inst("mov", "rsp, rbp")
-                            self.inst("add", f"rsp, {self.stack_allocation}")
                             self.inst("pop", "rbp")
                             self.inst("ret", "")
-                        return
 
+                        self.current_stack_depth = 0
+                        return
                 case "++":
                     self.pop("rax")
                     self.inst("inc", "rax")
@@ -486,9 +594,30 @@ class Generator:
                     self.current_stack_depth -= 1
 
                 case "[hijack]":
-                    # ... [Keeping your existing hijack syntax scanning loop] ...
-                    pass
+                    curr = self.next()
+                    if curr == "{":
+                        curr = self.current()
+                        while curr != "}":
+                            if len(curr) > 2:
+                                self.hijack(curr[1:-1]);
+                            curr = self.next()
 
+                        curr = self.next()
+                        if curr != ";":
+                            self.current_stack_depth += 1
+                            continue
+
+                    elif curr[0] == '"':
+                        if len(curr) > 2:
+                            self.hijack(curr[1:-1]);
+
+                        curr = self.next()
+                        if curr != ";":
+                            self.current_stack_depth += 1
+                            continue
+                    else:
+                        print("Compilation Error: Expected String literal or block '{ ... }' after in compiler hijack")
+                        sys.exit(1)
                 case _:
                     if curr[0] == '\'':
                         try:
@@ -508,12 +637,12 @@ class Generator:
                         str_id = self.string_pool[string_lit]
 
                         # x86 RIP-relative addressing
-                        self.inst("lea", f"rax, [.STR{str_id} + rip]")
+                        self.inst("lea", f"rax, [rip + .STR{str_id}]")
                         self.push("rax")
                         self.current_stack_depth += 1
 
                     elif curr[0] == ".":
-                        var = '_' + curr[1:]
+                        var = curr[1:]
                         self.comment("Push variable address")
                         self.inst("lea", f"rax, [{var} + rip]")
                         self.push("rax")
@@ -521,26 +650,9 @@ class Generator:
 
                     elif curr[-1] == '!':
                         proc_callee = curr[:-1]
-                        self.comment(f"FFI Call to {proc_callee}")
-                        
-                        try:
-                            params = self.procedure_params[proc_callee]
-                        except KeyError:
-                            print(f"Compilation Error: Undefined procedure: {proc_callee}")
-                            sys.exit(1)
+                        self.comment(f"Load arguments for {proc_callee}")
 
-                        # --- Calling Convention mapping for x86_64 System V / Windows ABI ---
-                        # Note: You will need to map your popped stack items into structural registers 
-                        # (like rdi, rsi, rdx, rcx, r8, r9 for SysV Linux/macOS) based on parameter index `i`
-                        
-                        self.reserve(32)
-                        self.inst("call", f"\"{proc_callee}\"")
-                        self.resign(32)
-
-                        type = self.procedure_return[proc_callee]
-                        if type != 0:
-                            self.push("rax")
-                            self.current_stack_depth += 1
+                        self.call(proc_callee)
 
                     elif curr[0] == '$':
                         count = curr[1:]
@@ -551,8 +663,7 @@ class Generator:
 
                     else:
                         if curr.isdigit():
-                            self.inst("mov", f"rax, {curr}")
-                            self.push("rax")
+                            self.push(f"{curr}")
                         else:
                             print(f"Compilation Error: Unknown token '{curr}'")
                             sys.exit(1)
@@ -564,13 +675,11 @@ class Generator:
         prev = ""
         curr = self.current()
         
-        # self.tag(".file \"{}\"")
-        self.tag(".intel_syntax noprefix")
-        self.tag(".text")
-        
         while self.tok_iter < self.tok_len:
             prev = curr
             curr = self.current()
+
+            self.define_facilities()
 
             match curr:
                 case "static":
@@ -614,7 +723,6 @@ class Generator:
                     
                         self.procedures.append(name)
 
-                    
                         curr = self.next()
                         if curr != "(":
                             print(f"Compilation Error: extern proc definition expects parameter list")
@@ -651,17 +759,16 @@ class Generator:
                         if name in self.procedures:
                             print(f"Compilation Error: extern proc or proc {name} already defined")
                             sys.exit(1)
-                        
+
                         self.procedures.append(name)
                         self.current_procedure = name
 
-                        self.tag(f".globl  \"{name}\"")
-                        self.tag(f".def    \"{name}\"")
+                        self.tag(f".text")
+                        self.tag(f".globl  {name}")
+                        self.tag(f".def    {name}; .scl 2; .type 32; .endef")
                         self.symbol(name)
                         self.inst("push", "rbp")          # Push SP
                         self.inst("mov", "rbp, rsp")     # Save SP to rsp
-                        
-                        self.inst("sub", f"rsp, {self.stack_allocation}")
 
                         curr = self.next()
 
@@ -707,6 +814,7 @@ class Generator:
                                         sys.exit(1)
                         
                             self.current_stack_depth = len(params)
+                            self.procedure_base_depth = self.current_stack_depth
 
                         elif self.current() == "[hijack]":
                             curr = self.next()
@@ -767,9 +875,11 @@ class Generator:
 
             self.advance()
 
+        meta = f"	.file	\"{self.source_file}\"\n    .intel_syntax noprefix\n\n"
+
         bss  = self.gen_BSS()
         strs = self.gen_str_section()
-        data = bss + strs
+        data = meta + bss + strs
 
         self.program = data + self.program
         self.program += "#   .ident	\"Built with plum.py, powered by GCC/Clang\"\n"
@@ -778,21 +888,20 @@ class Generator:
 
     def gen_str_section(self) -> str:
         section =  ""
-        section += "    .section .rdata,\"dr\"\n"
-
         for string, str_id in self.string_pool.items():
             section += f".STR{str_id}:\n"
-            section += f"    .ascii  {string}\n"
+            section += f"    .asciz  {string}\n"
         
-        section += "\n"
+        if section != "":
+            section = "    .section .rdata,\"dr\"\n" + section
         return section
 
     def gen_BSS(self) -> str:
-        print("Todo: .file <file>")
         section =  ""
-        section += "    # file <filename>"
-        section += "    .text\n"
         for bss in self.bss_section:
             section += f"{bss}\n"   
+        
+        if section != "":
+            section = "    .text\n" + section
         
         return section
