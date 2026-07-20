@@ -4,15 +4,14 @@
 
 # Plum
 
-Plum is a small, compiled, stack-based programming language. Programs are written as postfix token streams operating on a single data stack, similar in spirit to Forth: values are pushed, and operators and procedures consume whatever they need off the top of the stack. Plum compiles this directly to native assembly rather than interpreting it.
+Plum is a small, compiled, stack-based programming language. Programs are written as postfix token streams operating on a single data stack, similar in spirit to Forth: values are pushed, and operators and procedures consume whatever they need off the top of the stack. Plum compiles this directly to native assembly and I would label it a fun but capable toy-language.
 
-> **Status:** Plum currently only compiles to AArch64 (ARM64) assembly on macOS. Support for x86_64 on Windows is actively being worked on, with a Linux port to follow after that. See [Roadmap](#roadmap).
+> **Status:** Plum compiles to AArch64 (ARM64) assembly on macOS, x86_64 on Windows and x86_64 on Linux. For more information about features underway see [Roadmap](#roadmap).
 
 ## Requirements
 
 - Python 3
 - `gcc` or `clang` on `PATH` (used to assemble and link the generated `.s` file)
-- macOS on Apple Silicon (arm64) — for now
 
 ## Building a .plum file
 
@@ -132,9 +131,14 @@ python test.py
 
 ## Roadmap
 
+### Platforms
 - [x] AArch64 codegen on macOS
-- [x] x86_64 codegen for Windows
-- [ ] x86_64 codegen for Linux
+- [x] x86_64 codegen on Windows
+- [x] x86_64 codegen on Linux
+
+### Features
+- [ ] Function pointers
+- [ ] Structs/Custom Data Types
 
 ## License
 
