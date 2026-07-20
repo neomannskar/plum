@@ -14,19 +14,20 @@ def is_float(token):
     except ValueError:
         return False
 
-class Win64ABI:
+class LinuxABI:
     ARG_REGS = [
-        { 1 : "cl",  2 : "cx",  4 : "ecx", 8 : "rcx" },
+        { 1 : "dil", 2 : "di",  4 : "edi", 8 : "rdi" },
+        { 1 : "sil", 2 : "si",  4 : "esi", 8 : "rsi" },
         { 1 : "dl",  2 : "dx",  4 : "edx", 8 : "rdx" },
+        { 1 : "cl",  2 : "cx",  4 : "ecx", 8 : "rcx" },
         { 1 : "r8b", 2 : "r8w", 4 : "r8d", 8 : "r8"  },
         { 1 : "r9b", 2 : "r9w", 4 : "r9d", 8 : "r9"  },
     ]
 
     def argument_reg(self, index: int, size: int) -> str:
-        # print(index)
         try:
             return self.ARG_REGS[index][size]
-        except:
+        except IndexError:
             return None
 
     def push_reg(self, index: int) -> str:
@@ -60,7 +61,7 @@ class Generator:
     bss_section: list = []          # BSS Data section
     statics: dict = {}              # Static variables [name] = type
 
-    abi: Win64ABI                   # Holds Windows 64 ABI-specific details
+    abi: LinuxABI                   # Holds ABI-specific details
 
     program: str = ""               # Holds compiled program when done
 
@@ -69,7 +70,7 @@ class Generator:
         self.tok_len = len(tokens)
         self.tokens = tokens
         self.str_lits = str_literals
-        self.abi = Win64ABI()
+        self.abi = LinuxABI()
 
     def define_facilities(self):
         self.procedures.append("malloc")
@@ -244,12 +245,10 @@ class Generator:
                 sys.exit(1)
     
     def home_arg(self, index: int, reg: str):
-        if index < 4:
+        if index < 6:
             return
-        
-        stack_index = index - 4
-        offset =  32 + stack_index * 8
-        
+        stack_index = index - 6
+        offset = stack_index * 8
         self.inst("mov", f"[rsp + {offset}], {reg}")
 
     def expect_stack(self, count: int):
@@ -261,7 +260,7 @@ class Generator:
             # print(f"In '{self.current_procedure}' -> Current Stack Depth: {self.current_stack_depth}")
 
     def calc_align(self, depth: int):
-        used = depth * 8 + 32
+        used = depth * 8
         misalignment = used % 16
         if misalignment == 0:
             return 0
@@ -366,22 +365,25 @@ class Generator:
                     args.append(reg)
                 self.current_stack_depth -= 1
 
-        alignment = self.calc_align(self.current_stack_depth) + 32
+        stack_arg_bytes = len(stack_args) * 8
+        alignment = self.calc_align(self.current_stack_depth + len(stack_args))
+        
+        total_allocation = stack_arg_bytes + alignment
 
-        self.inst("sub", f"rsp, {alignment}")
+        if total_allocation > 0:
+            self.inst("sub", f"rsp, {total_allocation}")
 
+        for i, reg in stack_args:
+            self.home_arg(i, reg)
+            
         if is_variadic:
-            for i, reg in enumerate(args):
-                self.home_arg(i, reg)
-            for i, reg in stack_args:
-                self.home_arg(i, reg)
             self.callee_arg_count = -1
-        else:
-            for i, reg in stack_args:
-                self.home_arg(i, reg)
+            self.inst("xor", "eax, eax")
 
-        self.inst("call", f"{proc}")
-        self.inst("add", f"rsp, {alignment}")
+        self.inst("call", f"{proc}@PLT")
+        
+        if total_allocation > 0:
+            self.inst("add", f"rsp, {total_allocation}")
 
         type = self.procedure_return[proc]
         if type != 0:
@@ -742,7 +744,8 @@ class Generator:
                         self.advance()
 
                         if is_integer(self.current()):
-                            self.bss_section.append(f".lcomm {name},{int(self.current()) * Generator.size_of(self.statics[name])},32")
+                            self.bss_section.append(f"    .local  {name}")
+                            self.bss_section.append(f"    .comm   {name},{int(self.current()) * Generator.size_of(self.statics[name])},32")
                         else:
                             width = " " * len(name)
                             print(f"Compilation Error: Unexpected token in static variable defintion: '{self.current()}'\n\n\tstatic {name}\n\t~      {width} ^\n\nExpected number of elements")
@@ -760,8 +763,6 @@ class Generator:
 
                     name = self.next()
                     if name:
-                        name = f"{name}"
-                        
                         if name in self.procedures:
                             print(f"Compilation Error: extern proc or proc {name} already defined as {self.procedure_params[name]}")
                             sys.exit(1)
@@ -810,7 +811,7 @@ class Generator:
 
                         self.tag(f".text")
                         self.tag(f".globl  {name}")
-                        self.tag(f".def    {name}; .scl 2; .type 32; .endef")
+                        self.tag(f".type   {name}, @function")
                         self.symbol(name)
                         self.inst("push", "rbp")
                         self.inst("mov", "rbp, rsp")
@@ -935,10 +936,10 @@ class Generator:
         section =  ""
         for string, str_id in self.string_pool.items():
             section += f".STR{str_id}:\n"
-            section += f"    .asciz  {string}\n"
+            section += f"    .string  {string}\n"
         
         if section != "":
-            section = "    .section .rdata,\"dr\"\n" + section
+            section = "    .section .rodata\n" + section
         return section
 
     def gen_BSS(self) -> str:
