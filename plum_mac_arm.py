@@ -314,28 +314,17 @@ class Generator:
             
             match curr:
                 case "intrinsic__printf":
-                    # special case
-                    self.pop("x0")
-                    self.inst("bl", "_printf")
-                    self.inst("add", "sp, sp, #16")
+                    print(f"Deprecated: {curr}")
+                    sys.exit(1)
 
-                    self.current_stack_depth -= 2
                 case "intrinsic__printf_ln":
-                    # special case
-                    self.pop("x0")
-                    self.inst("bl", "_printf")
-                    self.inst("add", "sp, sp, #16")
-                    self.inst("mov", "x0, #10")
-                    self.inst("bl", "_putchar")
+                    print(f"Deprecated: {curr}")
+                    sys.exit(1)
 
-                    self.current_stack_depth -= 2
                 case "intrinsic__scanf":
-                    # special case
-                    self.pop("x0")
-                    self.inst("bl", "_scanf")
-                    self.inst("add", "sp, sp, #16")
-
-                    self.current_stack_depth -= 2
+                    print(f"Deprecated: {curr}")
+                    sys.exit(1)
+                    
                 case "dup":
                     self.expect_stack(1)
 

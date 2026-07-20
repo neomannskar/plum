@@ -269,7 +269,6 @@ class Generator:
             return 16 - misalignment
 
     def get_scratch_reg(self, stack_idx: int, size: int) -> str:
-        """Returns a temporary caller-saved scratch register based on size and stack offset."""
         regs = {
             1: ["r10b", "r11b", "al"],
             2: ["r10w", "r11w", "ax"],
@@ -369,7 +368,6 @@ class Generator:
 
         alignment = self.calc_align(self.current_stack_depth) + 32
 
-        # Allocate stack frame (including shadow space and stack arguments)
         self.inst("sub", f"rsp, {alignment}")
 
         if is_variadic:
@@ -379,7 +377,6 @@ class Generator:
                 self.home_arg(i, reg)
             self.callee_arg_count = -1
         else:
-            # Home 5th+ parameters into stack slots ([rsp + 32], [rsp + 40], etc.)
             for i, reg in stack_args:
                 self.home_arg(i, reg)
 
@@ -517,8 +514,8 @@ class Generator:
                         print("Returning floats is not implemented yet!")
                         sys.exit(1)
                     else:
-                        self.pop("rax")      # Return value goes into rax
-                        self.inst("mov", "rsp, rbp") # Tear down stack frame
+                        self.pop("rax")
+                        self.inst("mov", "rsp, rbp")
                         self.inst("pop", "rbp")
                         self.inst("ret", "")
 
@@ -578,7 +575,7 @@ class Generator:
                     self.pop("rax")
                     self.inst("cqo", "")
                     self.inst("idiv", "rcx")
-                    self.push("rdx") # Remainder goes into rdx
+                    self.push("rdx")
                     self.current_stack_depth -= 1
                 case "&":
                     self.expect_stack(2)
@@ -613,7 +610,7 @@ class Generator:
                     self.push("rax")
                 case "<<":
                     self.expect_stack(2)
-                    self.pop("rcx") # Shift count must be in cl/rcx on x86
+                    self.pop("rcx")
                     self.pop("rax")
                     self.inst("shl", "rax, cl")
                     self.push("rax")
@@ -633,12 +630,11 @@ class Generator:
                     self.pop("rax")
                     self.inst("cmp", "rax, rcx")
                     
-                    # Determine setcc condition instruction suffix
                     cond_map = {"<": "l", ">": "g", "==": "e", "!=": "ne", "<=": "le", ">=": "ge"}
                     suffix = cond_map[curr]
                     
                     self.inst(f"set{suffix}", "al")
-                    self.inst("movzx", "rax, al") # Clear upper bits of rax
+                    self.inst("movzx", "rax, al")
                     self.push("rax")
                     self.current_stack_depth -= 1
 
@@ -816,8 +812,8 @@ class Generator:
                         self.tag(f".globl  {name}")
                         self.tag(f".def    {name}; .scl 2; .type 32; .endef")
                         self.symbol(name)
-                        self.inst("push", "rbp")          # Push SP
-                        self.inst("mov", "rbp, rsp")     # Save SP to rsp
+                        self.inst("push", "rbp")
+                        self.inst("mov", "rbp, rsp")
 
                         curr = self.next()
 
