@@ -167,13 +167,17 @@ if os_type == "darwin":
 
     elif "x86_64" in architecture:
         raise NotImplementedError(f"macOS x86_64 is not implemented yet!")
-    
-elif os_type == "linux" or os_type == "windows":
+elif os_type == "windows":
     if "arm64" in architecture or "aarch64" in architecture:
-        raise NotImplementedError(f"Linux/Windows ARM64 is not implemented yet!")
+        raise NotImplementedError(f"Windows ARM64 is not implemented yet!")
     elif "x86_64" or "amd64" in architecture:
-        print("TODO: Windows/Linux x86_64")
-        from plum_win_x86_64 import Generator
+        from plum_win_x86_64 import Generator 
+elif os_type == "linux":
+    if "arm64" in architecture or "aarch64" in architecture:
+        raise NotImplementedError(f"Linux ARM64 is not implemented yet!")
+    elif "x86_64" or "amd64" in architecture:
+        print("TODO: Linux x86_64")
+        from plum_lin_x86_64 import Generator
 else:
     if "arm" in architecture:
         raise NotImplementedError(f"{os_type} ({architecture})\n")
