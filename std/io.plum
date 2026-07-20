@@ -27,3 +27,7 @@ macro SEEK_DATA 4       # set file offset to the start of the next non-hole file
 macro stdout [hijack] { "adrp	 x0, ___stdoutp@GOTPAGE" "ldr     x0, [x0, ___stdoutp@GOTPAGEOFF]" "ldr      x0, [x0]" "str     x0, [sp, #-16]!" }
 macro stderr [hijack] { "adrp	 x0, ___stderrp@GOTPAGE" "ldr     x0, [x0, ___stderrp@GOTPAGEOFF]" "ldr      x0, [x0]" "str     x0, [sp, #-16]!" }
 macro stdin  [hijack] { "adrp	 x0, ___stdinp@GOTPAGE"  "ldr     x0, [x0, ___stdinp@GOTPAGEOFF]"  "ldr      x0, [x0]" "str     x0, [sp, #-16]!" }
+
+macro stdout_x86_64 [hijack] { "sub     rsp, 32" "mov     ecx, 1" "call    __acrt_iob_func" "add     rsp, 32" "push    rax" }
+macro stderr_x86_64 [hijack] { "sub     rsp, 32" "mov     ecx, 2" "call    __acrt_iob_func" "add     rsp, 32" "push    rax" }
+macro stdin_x86_64  [hijack] { "sub     rsp, 32" "mov     ecx, 0" "call    __acrt_iob_func" "add     rsp, 32" "push    rax" }

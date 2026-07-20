@@ -1,0 +1,6 @@
+import "std/io"
+
+proc main ( dword ptr ) dword :
+    "Hello World!" "%s" $1 @println
+    0 return
+end
