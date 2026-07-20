@@ -14,5 +14,6 @@ proc main ( ) :
     .buffer . 31 0 []=
 
     123 "%lld" .buffer . $1 sprintf!
+    
     .buffer . puts!
 end

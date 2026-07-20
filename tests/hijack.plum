@@ -1,12 +1,16 @@
 import "std/io"
 
-proc add ( qword qword ) [hijack] qword :
-    [hijack] "add x0, x0, x1" ;
-    [hijack] { "ldp x29, x30, [sp], #16" "ret" } ;
+proc add ( dword dword ) [hijack] qword :
+    [hijack] "add rcx, rdx" ;
+    [hijack] "mov rax, rcx" ;
+    [hijack] "mov rsp, rbp" ;
+    [hijack] "pop rbp" ;
+    [hijack] "ret" ;
 end
 
 proc main ( qword ptr ) [hijack] qword :
-    "Hello World!\n" @stdout $0 fprintf!
+    # // "Hello World!\n" @stdout $0 fprintf! <-- Doesn't work right now on windows, the macro is broken
     1 2 add! "%ld" $1 @println
+    # // "Hello World!" puts!
     0 return
 end
