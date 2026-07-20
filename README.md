@@ -133,8 +133,8 @@ python test.py
 ## Roadmap
 
 - [x] AArch64 codegen on macOS
-- [ ] x86_64 codegen for Windows (in progress)
-- [ ] Linux support (x86_64, then likely ARM64)
+- [x] x86_64 codegen for Windows
+- [ ] x86_64 codegen for Linux
 
 ## License
 
