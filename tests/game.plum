@@ -1,3 +1,7 @@
+# // -I C:\raylib\w64devkit\include
+# // -L C:\raylib\w64devkit\lib
+# // -lraylib
+
 import "std/io"
 import "import/raylib"
 

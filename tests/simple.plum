@@ -1,3 +1,4 @@
 proc main ( dword ptr ) dword :
+    drop drop
     0 return
 end

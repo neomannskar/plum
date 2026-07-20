@@ -23,7 +23,11 @@ class Win64ABI:
     ]
 
     def argument_reg(self, index: int, size: int) -> str:
-        return self.ARG_REGS[index][size]
+        # print(index)
+        try:
+            return self.ARG_REGS[index][size]
+        except:
+            return None
 
     def push_reg(self, index: int) -> str:
         return self.ARG_REGS[index][8]
@@ -250,8 +254,11 @@ class Generator:
 
     def expect_stack(self, count: int):
         if self.current_stack_depth < count:
-            print(f"Compilation Error: '{self.current()}' expects at least {count} elements on the stack, got: {self.current_stack_depth}")
+            print(f"Compilation Error: In procedure {self.current_procedure} -> '{self.current()}' expects at least {count} elements on the stack, got: {self.current_stack_depth}")
             sys.exit(1)
+        else:
+            pass
+            # print(f"In '{self.current_procedure}' -> Current Stack Depth: {self.current_stack_depth}")
 
     def calc_align(self, depth: int):
         used = depth * 8 + 32
@@ -260,6 +267,17 @@ class Generator:
             return 0
         else:
             return 16 - misalignment
+
+    def get_scratch_reg(self, stack_idx: int, size: int) -> str:
+        """Returns a temporary caller-saved scratch register based on size and stack offset."""
+        regs = {
+            1: ["r10b", "r11b", "al"],
+            2: ["r10w", "r11w", "ax"],
+            4: ["r10d", "r11d", "eax"],
+            8: ["r10", "r11", "rax"]
+        }
+        pool = regs.get(size, regs[8])
+        return pool[stack_idx % len(pool)]
 
     def call(self, proc: str):
         try:
@@ -271,37 +289,65 @@ class Generator:
         is_variadic = "..." in params
 
         args = []
+        stack_args = []
 
         for i, param in enumerate(params):
             match param:
                 case "...":
                     break
+
                 case "[byte4]":
-                    print("BYTE4 argument is not implemented yet!")
-                    sys.exit(1)
-                case "byte":
-                    reg = self.abi.argument_reg(i, 1)
-                    self.pop_arg(reg, 1)
-                case "word":
-                    reg = self.abi.argument_reg(i, 2)
-                    self.pop_arg(reg, 2)
-                case "dword":
+                    if hasattr(self, "expect_stack"):
+                        self.expect_stack(4)
+
                     reg = self.abi.argument_reg(i, 4)
-                    self.pop_arg(reg, 4)
-                case "qword":
-                    reg = self.abi.argument_reg(i, 8)
-                    self.pop_arg(reg, 8)
-                case "ptr":
-                    reg = self.abi.argument_reg(i, 8)
-                    self.pop_arg(reg, 8)
+                    target_reg = reg if reg else self.get_scratch_reg(len(stack_args), 4)
+
+                    self.pop("rax")               # Pop 'a'
+                    self.inst("shl", "eax, 24")   # a << 24
+
+                    self.pop("r10")               # Pop 'b'
+                    self.inst("shl", "r10d, 16")  # b << 16
+                    self.inst("or", "eax, r10d")
+
+                    self.pop("r11")               # Pop 'g'
+                    self.inst("shl", "r11d, 8")   # g << 8
+                    self.inst("or", "eax, r11d")
+
+                    self.pop("r10")               # Pop 'r'
+                    self.inst("or", "eax, r10d")  # r
+
+                    if target_reg != "eax":
+                        self.inst("mov", f"{target_reg}, eax")
+
+                    self.current_stack_depth -= 3
+
+                    if reg is None:
+                        stack_args.append((i, target_reg))
+                    else:
+                        args.append(reg)
+
+                case "byte" | "word" | "dword" | "qword" | "ptr":
+                    size_map = {"byte": 1, "word": 2, "dword": 4, "qword": 8, "ptr": 8}
+                    size = size_map[param]
+                    reg = self.abi.argument_reg(i, size)
+
+                    if reg is None:
+                        target_reg = self.get_scratch_reg(len(stack_args), size)
+                        self.pop_arg(target_reg, size)
+                        stack_args.append((i, target_reg))
+                    else:
+                        self.pop_arg(reg, size)
+                        args.append(reg)
+
                 case "float" | "double":
-                    print("Floating point arguments are not implemented yet!")
+                    print("Compilation Error: Floating point arguments are not implemented yet!")
                     sys.exit(1)
+
                 case _:
                     print(f"Compilation Error: Unknown parameter type: {param}")
                     sys.exit(1)
 
-            args.append(reg)
             self.current_stack_depth -= 1
 
         if is_variadic:
@@ -310,30 +356,35 @@ class Generator:
                 sys.exit(1)
 
             for _ in range(self.callee_arg_count):
-                idx = len(args)
+                idx = len(args) + len(stack_args)
                 reg = self.abi.argument_reg(idx, 8)
-                self.pop_arg(reg, 8)
-                args.append(reg)
+                if reg is None:
+                    target_reg = self.get_scratch_reg(len(stack_args), 8)
+                    self.pop_arg(target_reg, 8)
+                    stack_args.append((idx, target_reg))
+                else:
+                    self.pop_arg(reg, 8)
+                    args.append(reg)
                 self.current_stack_depth -= 1
 
         alignment = self.calc_align(self.current_stack_depth) + 32
 
-        if is_variadic:
-            self.inst("sub", f"rsp, {alignment}")
+        # Allocate stack frame (including shadow space and stack arguments)
+        self.inst("sub", f"rsp, {alignment}")
 
+        if is_variadic:
             for i, reg in enumerate(args):
                 self.home_arg(i, reg)
-
-            self.inst("call", f"{proc}")
-
-            self.inst("add", f"rsp, {alignment}")
-
+            for i, reg in stack_args:
+                self.home_arg(i, reg)
             self.callee_arg_count = -1
-
         else:
-            self.inst("sub", f"rsp, {alignment}")
-            self.inst("call", f"{proc}")
-            self.inst("add", f"rsp, {alignment}")
+            # Home 5th+ parameters into stack slots ([rsp + 32], [rsp + 40], etc.)
+            for i, reg in stack_args:
+                self.home_arg(i, reg)
+
+        self.inst("call", f"{proc}")
+        self.inst("add", f"rsp, {alignment}")
 
         type = self.procedure_return[proc]
         if type != 0:
@@ -417,12 +468,10 @@ class Generator:
                 case "free":
                     self.expect_stack(1)
                     self.call("free")
-                    self.current_stack_depth -= 1
                     
                 case "exit":
                     self.expect_stack(1)
                     self.call("exit")
-                    self.current_stack_depth -= 1
 
                 case ".":
                     self.expect_stack(1)

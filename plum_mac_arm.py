@@ -185,6 +185,123 @@ class Generator:
             print(f"Compilation Error: '{self.current()}' expects at least {count} elements on the stack, got: {self.current_stack_depth}")
             sys.exit(1)
 
+    def call(self, proc: str):
+        try:
+            params = self.procedure_params[proc]
+        except KeyError:
+            print(f"Compilation Error: Undefined procedure: {proc}")
+            sys.exit(1)
+        
+        i = 0
+        is_variadic = False
+        if "..." in params:
+            is_variadic = True
+            if self.callee_arg_count > -1:
+                self.expect_stack(self.callee_arg_count)
+                self.current_stack_depth -= (self.callee_arg_count)
+            else:
+                print("Compilation Error: variadic variable count not set with '$' operator before call to variadic procedure")
+                sys.exit(1)
+
+        for param in params:
+            if param == "...":
+                if len(params) < 2 and params[-1] != "...":
+                    print("Compilation Error: Variadics must be at end of parameter list and can't be the only parameter!")
+                    sys.exit(1)
+                break
+            else:
+                match param:
+                    case "byte":    # 8-bit
+                        self.expect_stack(1)
+                        self.inst("ldr", f"w{i}, [sp], #16")
+                    case "word":    # 16-bit
+                        self.expect_stack(1)
+                        self.inst("ldr", f"w{i}, [sp], #16")
+                    case "dword":   # 32-bit
+                        self.expect_stack(1)
+                        self.pop(f"w{i}")
+                    case "qword":   # 64-bit
+                        self.expect_stack(1)
+                        self.pop(f"x{i}")
+                    case "ptr":     # 64-bit
+                        self.expect_stack(1)
+                        self.pop(f"x{i}")
+                    case "float":   # 32-bit
+                        self.expect_stack(1)
+                        self.inst("ldr", f"s{i}, [sp], #16")
+                    case "double":  # 64-bit
+                        self.expect_stack(1)
+                        self.inst("ldr", f"v{i}, [sp], #16")
+                    case "[byte4]":
+                        self.expect_stack(4)
+
+                        self.pop("x9")   # a
+                        self.pop("x10")  # b
+                        self.pop("x11")  # g
+                        self.pop("x12")  # r
+
+                        # Pack into x12
+                        self.inst("lsl", "x11, x11, #8")     # g << 8
+                        self.inst("lsl", "x10, x10, #16")    # b << 16
+                        self.inst("lsl", "x9, x9, #24")      # a << 24
+
+                        self.inst("orr", "x12, x12, x11")
+                        self.inst("orr", "x12, x12, x10")
+                        self.inst("orr", "x12, x12, x9")
+
+                        self.inst("mov", f"w{i}, w12")
+
+                        self.current_stack_depth -= 3
+                    case _:
+                        print(f"Unknown parameter type: {param}")
+                        sys.exit(1)
+
+                i += 1
+
+                self.current_stack_depth -= 1
+        
+        if is_variadic and self.callee_arg_count > -1:
+            N = self.callee_arg_count
+            aligned_size = ((N + 1) // 2) * 16
+            
+            if aligned_size > 0:
+                self.comment("Repack variadic arguments for macOS ABI (8-byte slots)")
+                self.inst("sub", f"sp, sp, #{aligned_size}")
+            
+            for j in range(N):
+                old_offset = aligned_size + (j * 16)
+                new_offset = j * 8
+                
+                self.inst("ldr", f"x9, [sp, #{old_offset}]")
+                self.inst("str", f"x9, [sp, #{new_offset}]")
+
+        if not proc in self.procedures:
+            print(f"Compilation Error: No known procedure: {proc}")
+            sys.exit(1)
+        
+        self.comment("Call")
+        self.inst("bl", f"{proc}")
+        if is_variadic:
+            if self.callee_arg_count > -1:
+                aligned_size = ((self.callee_arg_count + 1) // 2) * 16
+                total_cleanup = aligned_size + (self.callee_arg_count * 16)
+                
+                self.inst("add", f"sp, sp, #{total_cleanup}")
+                self.callee_arg_count = -1
+            else:
+                print(f"Compilation Error: variadic variable count not set with '$' operator before call to variadic procedure: {self.callee_arg_count}")
+                sys.exit(1)
+        
+        type = self.procedure_return[proc]
+        if type == 0:
+            pass
+        elif type == "float" or type == "double":
+            self.push("v0")
+            self.current_stack_depth += 1
+        else:
+            self.push("x0")
+            self.current_stack_depth += 1
+
     def gen_asm(self):
         prev = ""
         curr = self.current()
@@ -585,121 +702,7 @@ class Generator:
                         proc_callee = '_' + curr[:-1]
                         self.comment(f"Load arguments for {proc_callee}")
                         
-                        try:
-                            params = self.procedure_params[proc_callee]
-                        except KeyError:
-                            print(f"Compilation Error: Undefined procedure: {proc_callee[1:]}")
-                            sys.exit(1)
-                        
-                        i = 0
-                        is_variadic = False
-                        if "..." in params:
-                            is_variadic = True
-                            if self.callee_arg_count > -1:
-                                self.expect_stack(self.callee_arg_count)
-                                self.current_stack_depth -= (self.callee_arg_count)
-                            else:
-                                print("Compilation Error: variadic variable count not set with '$' operator before call to variadic procedure")
-                                sys.exit(1)
-
-                        for param in params:
-                            if param == "...":
-                                if len(params) < 2 and params[-1] != "...":
-                                    print("Compilation Error: Variadics must be at end of parameter list and can't be the only parameter!")
-                                    sys.exit(1)
-                                break
-                            else:
-                                match param:
-                                    case "byte":    # 8-bit
-                                        self.expect_stack(1)
-                                        self.inst("ldr", f"w{i}, [sp], #16")
-                                    case "word":    # 16-bit
-                                        self.expect_stack(1)
-                                        self.inst("ldr", f"w{i}, [sp], #16")
-                                    case "dword":   # 32-bit
-                                        self.expect_stack(1)
-                                        self.pop(f"w{i}")
-                                    case "qword":   # 64-bit
-                                        self.expect_stack(1)
-                                        self.pop(f"x{i}")
-                                    case "ptr":     # 64-bit
-                                        self.expect_stack(1)
-                                        self.pop(f"x{i}")
-                                    case "float":   # 32-bit
-                                        self.expect_stack(1)
-                                        self.inst("ldr", f"s{i}, [sp], #16")
-                                    case "double":  # 64-bit
-                                        self.expect_stack(1)
-                                        self.inst("ldr", f"v{i}, [sp], #16")
-                                    case "[byte4]":
-                                        self.expect_stack(4)
-
-                                        self.pop("x9")   # a
-                                        self.pop("x10")  # b
-                                        self.pop("x11")  # g
-                                        self.pop("x12")  # r
-
-                                        # Pack into x12
-                                        self.inst("lsl", "x11, x11, #8")     # g << 8
-                                        self.inst("lsl", "x10, x10, #16")    # b << 16
-                                        self.inst("lsl", "x9, x9, #24")      # a << 24
-
-                                        self.inst("orr", "x12, x12, x11")
-                                        self.inst("orr", "x12, x12, x10")
-                                        self.inst("orr", "x12, x12, x9")
-
-                                        self.inst("mov", f"w{i}, w12")
-
-                                        self.current_stack_depth -= 3
-                                    case _:
-                                        print(f"Unknown parameter type: {param}")
-                                        sys.exit(1)
-
-                                i += 1
-
-                                self.current_stack_depth -= 1
-                        
-                        if is_variadic and self.callee_arg_count > -1:
-                            N = self.callee_arg_count
-                            aligned_size = ((N + 1) // 2) * 16
-                            
-                            if aligned_size > 0:
-                                self.comment("Repack variadic arguments for macOS ABI (8-byte slots)")
-                                self.inst("sub", f"sp, sp, #{aligned_size}")
-                            
-                            for j in range(N):
-                                old_offset = aligned_size + (j * 16)
-                                new_offset = j * 8
-                                
-                                self.inst("ldr", f"x9, [sp, #{old_offset}]")
-                                self.inst("str", f"x9, [sp, #{new_offset}]")
-
-                        if not proc_callee in self.procedures:
-                            print(f"Compilation Error: No known procedure: {proc_callee[1:]}")
-                            sys.exit(1)
-                        
-                        self.comment("Call")
-                        self.inst("bl", f"{proc_callee}")
-                        if is_variadic:
-                            if self.callee_arg_count > -1:
-                                aligned_size = ((self.callee_arg_count + 1) // 2) * 16
-                                total_cleanup = aligned_size + (self.callee_arg_count * 16)
-                                
-                                self.inst("add", f"sp, sp, #{total_cleanup}")
-                                self.callee_arg_count = -1
-                            else:
-                                print(f"Compilation Error: variadic variable count not set with '$' operator before call to variadic procedure: {self.callee_arg_count}")
-                                sys.exit(1)
-                        
-                        type = self.procedure_return[proc_callee]
-                        if type == 0:
-                            pass
-                        elif type == "float" or type == "double":
-                            self.push("v0")
-                            self.current_stack_depth += 1
-                        else:
-                            self.push("x0")
-                            self.current_stack_depth += 1
+                        self.call(proc_callee)
                         
                     elif curr[0] == '$':
                         count = curr[1:]
