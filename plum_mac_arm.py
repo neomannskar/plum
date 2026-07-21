@@ -809,7 +809,6 @@ class Generator:
                             print(f"Compilation Error: extern proc or proc {name[1:]} already defined")
                             sys.exit(1)
                         
-                        print(name, self.current_stack_depth)
                         self.procedures.append(name)
                         self.current_procedure = name
 
