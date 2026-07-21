@@ -1,6 +1,7 @@
 import "std/io"
 
 proc main ( dword ptr ) dword :
+    drop drop
     "Hello World!" "%s" $1 @println
     0 return
 end
